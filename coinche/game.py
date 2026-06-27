@@ -98,9 +98,10 @@ class GameEngine:
             idx = (idx+1)%4
 
         if best is None:
-            trump = random.choice(SUITS + ["SA","TA"])
-            self.contract = Contract(80, trump)
-            self.taker_idx = None
+            # All players passed: redeal
+            self.dealer = (self.dealer + 1) % 4
+            self.deal()
+            self.run_auction()
         else:
             bidder_idx, (level, trump, coinched, capot) = best
             self.contract = Contract(level, trump, coinched, capot)
