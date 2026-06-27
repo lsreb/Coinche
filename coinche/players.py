@@ -70,7 +70,7 @@ class HeuristicPlayer(Player):
             if cnt >= 4 and has_j and has_9:
                 best_offer = (100, s, False, False)
                 break
-            if cnt >= 3 and has_j and has_9:
+            elif cnt >= 3 and has_j and has_9:
                 best_offer = (90, s, False, False)
             elif cnt >= 3 and has_j:
                 best_offer = (80, s, False, False)

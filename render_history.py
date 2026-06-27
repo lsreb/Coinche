@@ -71,9 +71,13 @@ def generate_page(history, out_path):
 
     stage_panels = []
     for i, stage in enumerate(stages, start=1):
-        center_cards = [''] * 4
+        played_cards_html = ''
+        played_cards_list = []
         for seat, card in stage['plays']:
-            center_cards[seat] = card_html(card)
+            pos = PLAYER_POSITIONS[seat].lower()
+            played_cards_list.append(f'<div class="played-card {pos}">{card_html(card)}</div>')
+        played_cards_html = '\n            '.join(played_cards_list)
+        
         winner_label = PLAYER_POSITIONS.get(stage['winner'], str(stage['winner'])) if stage['winner'] is not None else '?'
         completed_html = ''
         if stage['completed']:
@@ -89,12 +93,7 @@ def generate_page(history, out_path):
             <div class="player west">{PLAYER_POSITIONS[1]}<br>{hand_html(stage['hands'][1])}</div>
             <div class="player east">{PLAYER_POSITIONS[3]}<br>{hand_html(stage['hands'][3])}</div>
             <div class="player south">{PLAYER_POSITIONS[2]}<br>{hand_html(stage['hands'][2])}</div>
-            <div class="center-grid">
-              <div class="cell north"><span>{center_cards[0] or '&nbsp;'}</span></div>
-              <div class="cell west"><span>{center_cards[1] or '&nbsp;'}</span></div>
-              <div class="cell east"><span>{center_cards[3] or '&nbsp;'}</span></div>
-              <div class="cell south"><span>{center_cards[2] or '&nbsp;'}</span></div>
-            </div>
+            {played_cards_html}
           </div>
           <div class="panel-footer">
             <div><strong>Trick</strong> {stage['trick']}</div>
@@ -130,9 +129,11 @@ body { font-family: Arial, sans-serif; margin: 0; background: #f7f7f7; color: #2
 .player.south { bottom: 0; left: 50%; transform: translateX(-50%); width: 280px; }
 .player.west { left: 0; top: 50%; transform: translateY(-50%); width: 200px; }
 .player.east { right: 0; top: 50%; transform: translateY(-50%); width: 200px; }
-.center-grid { position: absolute; inset: 120px 160px; display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; gap: 16px; align-items: center; justify-items: center; }
-.cell { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border: 1px dashed #bbb; border-radius: 12px; background: #f1f8ff; font-size: 1.3rem; }
-.cell span { display: inline-block; }
+.played-card { position: absolute; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
+.played-card.north { top: 50%; left: 50%; transform: translate(-50%, -80px); }
+.played-card.south { bottom: 50%; left: 50%; transform: translate(-50%, 80px); }
+.played-card.west { left: 50%; top: 50%; transform: translate(-80px, -50%); }
+.played-card.east { right: 50%; top: 50%; transform: translate(80px, -50%); }
 .panel-footer { display: flex; gap: 24px; margin-top: 16px; }
 .completed-tricks { margin-top: 20px; padding: 12px; border-radius: 12px; background: #eef6ff; }
 .completed-item { margin-bottom: 8px; }

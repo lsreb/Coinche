@@ -9,6 +9,7 @@ Une partie de coinche est composée de plusieurs donnes. Une donne se déroule d
 ## 2) Déroulement  précis de la phase d'enchères
 
 Le joueur à la droite du donneur commence la phase d'enchères. Il annonce une dizaine entre 80 et 160 inclus, ou capot, ou il passe son tour. Il annonce aussi une couleur comme pique (P) coeur (C) carreau (K) ou trèfle (T), ou "sans-atout" (SA) ou "tout-atouts" (TA). Il dit par exemple 80C. Le joueur à sa droite doit passer ou surenchérir, donc avec au moins 10 de plus, dans n'importe quelle couleur, SA ou TA, ou alors coincher. Quand un joueur coinche, le contrat est fixé à la dernière annonce faite, et les mises sont doublées. Quand trois joueurs passent à la suite, le quatrième peut surenchérir sur lui-même, mais seulement s'il change de couleur, de TA ou SA. Quand les 4 joueurs passent, le contrat est fixé. L'équipe qui a pris le contrat est dite "équipe à l'attaque" et l'autre "équipe en défense".
+Si aucun joueur n'a fait d'enchères, la donne est nulle, personne ne marque de point, on passe à la donne suivante en rebattant les cartes avec le nouveau donner qui est le prochain joueur dans le sens anti-horaire.
 
 ## 3) Ordre des cartes
 
