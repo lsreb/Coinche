@@ -3,6 +3,10 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+#Custom files to ignore
+game_history_test.json
+game_history_viewer.html
+
 # C extensions
 *.so
 

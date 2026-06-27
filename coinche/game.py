@@ -45,33 +45,59 @@ class GameEngine:
         self.hands = []
         self.tricks = []
         self.contract = None
+        self.taker_idx = None
+        self.history = None
 
-    def deal(self):
-        deck = Deck()
-        self.hands = deck.deal()
+    def deal(self, hands: Optional[List[List[str]]] = None):
+        """Deal cards. If `hands` is provided, it should be list of 4 lists of strings like ['AP','10C',...]."""
+        if hands is None:
+            deck = Deck()
+            self.hands = deck.deal()
+        else:
+            parsed = []
+            for h in hands:
+                hand_cards = []
+                for s in h:
+                    if len(s) >= 2:
+                        suit = s[-1]
+                        rank = s[:-1]
+                        hand_cards.append(Card(suit, rank))
+                parsed.append(hand_cards)
+            while len(parsed) < 4:
+                parsed.append([])
+            self.hands = parsed
+
         for p, hand in zip(self.players, self.hands):
             p.deal(hand)
-            # give players knowledge of their seat and engine
         for i,p in enumerate(self.players):
             setattr(p, 'seat', i)
             setattr(p, 'engine', self)
 
+        # minimal history: deal_hands, auction, tricks
+        self.history = {
+            'deal_hands': [[repr(c) for c in h] for h in self.hands],
+            'auction': [],
+            'tricks': [],
+        }
+
     def run_auction(self):
-        # minimal auction: ask players.bid() in turn until 4 passes or someone bids
         passes = 0
         best = None
         idx = (self.dealer + 1) % 4
         while passes < 4:
             player = self.players[idx]
             b = player.bid(best)
+            # record bid (None for pass) in history
+            if self.history is not None:
+                self.history['auction'].append({'seat': idx, 'offer': b})
             if b is None:
                 passes += 1
             else:
                 best = (idx, b)
                 passes = 0
             idx = (idx+1)%4
+
         if best is None:
-            # default simple contract if everyone passed
             trump = random.choice(SUITS + ["SA","TA"])
             self.contract = Contract(80, trump)
             self.taker_idx = None
@@ -80,8 +106,10 @@ class GameEngine:
             self.contract = Contract(level, trump, coinched, capot)
             self.taker_idx = bidder_idx
 
+        if self.history is not None:
+            self.history['contract'] = {'level': self.contract.level, 'trump': self.contract.trump, 'taker': getattr(self, 'taker_idx', None)}
+
     def card_order_key(self, card:Card, lead_suit:Optional[str], trump:str):
-        # returns tuple for sorting strength
         if trump == 'TA' or (card.suit == trump):
             order = TRUMP_ORDER
         elif trump == 'SA':
@@ -118,28 +146,33 @@ class GameEngine:
         trump = self.contract.trump
         leader = (self.dealer + 1) % 4
         tricks_won = {i: [] for i in range(4)}
-        for t in range(8):
+        for _ in range(8):
             trick = []
+            trick_record = {'plays': []}
             for i in range(4):
                 idx = (leader + i) % 4
                 player = self.players[idx]
                 card = player.play_card(idx, leader, trick, trump)
                 trick.append((idx, card))
+                if self.history is not None:
+                    trick_record['plays'].append({'seat': idx, 'card': repr(card)})
             winner = self.evaluate_trick(trick, trump)
+            if self.history is not None:
+                trick_record['winner'] = winner
+                self.history['tricks'].append(trick_record)
             tricks_won[winner].extend([c for (_,c) in trick])
             leader = winner
-        # scoring
+
+        # scoring (unchanged)
         team_points = {0:0,1:0}
         for p, cards in tricks_won.items():
             pts = sum(self.card_point(c, trump) for c in cards)
             team = p%2
             team_points[team] += pts
-        # last trick bonus
         if trump != 'TA':
-            # add 10 to winner of last trick
             last_winner = leader
             team_points[last_winner%2] += 10
-        # belote detection: if a player captured both K and Q of trump
+
         belote_bonus = {0:0,1:0}
         for p, cards in tricks_won.items():
             ranks = {(c.suit,c.rank) for c in cards}
@@ -148,4 +181,5 @@ class GameEngine:
                     belote_bonus[p%2] += 20
         for team in [0,1]:
             team_points[team] += belote_bonus[team]
+
         return team_points, self.contract

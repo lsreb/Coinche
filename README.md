@@ -13,3 +13,5 @@ pip install -r requirements.txt
 ```
 
 2. Use the `coinche.env.CoincheEnv` to run self-play and plug a policy from `coinche.rl_agent`.
+
+python3 render_history.py --history game_history_test.json --out game_history_viewer.html génère une représentation graphique à partir d'un historique
