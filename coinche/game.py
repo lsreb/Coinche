@@ -184,3 +184,7 @@ class GameEngine:
             team_points[team] += belote_bonus[team]
 
         return team_points, self.contract
+    
+
+if __name__ == '__main__':
+    print("ok") #le test
