@@ -40,7 +40,7 @@ def run_game(strategies, hands, dealer, out_path):
 
 def main():
     parser = argparse.ArgumentParser(description='Run isolated Coinche test games.')
-    parser.add_argument('--strategies', default='heuristic,random,random,random',
+    parser.add_argument('--strategies', default='heuristic,random,heuristic,random',
                         help='Comma-separated strategies for seats 0-3. Options: random, heuristic, rl, user')
     parser.add_argument('--hands-file', default=None,
                         help='JSON file with 4 hands, each hand as list of card strings like ["AP","10P",...].')

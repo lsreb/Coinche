@@ -103,8 +103,9 @@ class HeuristicPlayer(Player):
                 other_tricks = sum(1 for c in self.hand if c.rank in ('A','10') and c.suit != s)
                 estimate = trumps + other_tricks
                 if estimate >= 6:
-                    return (110, s, False, False)
-
+                    best_offer = (110, s, False, False)
+                    break
+        # If still no offer, just pass for now (don't attempt overcall as it can loop)
         return best_offer
 
     def _choose_defausse_suit(self):
