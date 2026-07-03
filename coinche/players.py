@@ -94,37 +94,11 @@ class HeuristicPlayer(Player):
                 tricks += 1
         return tricks
 
-    def _count_tricks_notrump(self, use_ta: bool) -> int:
-        # Comptage de plis façon 1.1, mais sans terme d'atout (aucune couleur n'est
-        # atout à SA/TA) : on ne crédite un 10 (ou 9 à TA) isolé que s'il est troisième.
-        high, low = ('J', '9') if use_ta else ('A', '10')
-        tricks = 0
-        for s in SUITS:
-            cards = [c for c in self.hand if c.suit == s]
-            ranks = {c.rank for c in cards}
-            if high in ranks and low in ranks:
-                tricks += 2
-            elif low in ranks and len(cards) >= 3:
-                tricks += 1
-            elif high in ranks:
-                tricks += 1
-        return tricks
-
-    def _decrochage_ok(self, next_level: int, trump: str) -> bool:
-        # Décrocher jusqu'à 110+ revient à annoncer implicitement un compte de plis
-        # (1.1) : il faut donc réellement l'avoir, sinon on ne décroche pas (on passe).
-        if next_level < 110:
-            return True
-        needed = (next_level - 60) // 10
-        if trump in SUITS:
-            tricks = self._count_tricks(trump)
-        elif trump == 'SA':
-            tricks = self._count_tricks_notrump(use_ta=False)
-        elif trump == 'TA':
-            tricks = self._count_tricks_notrump(use_ta=True)
-        else:
-            tricks = 0
-        return tricks >= needed
+    def _decrochage_ok(self, own_level: int, opp_level: int) -> bool:
+        # Le décrochage tolère un "petit mensonge" d'un seul palier (10 points) au-delà
+        # de ce que la main justifie vraiment : une main à 100 peut dire 110 quand
+        # l'adversaire a dit 100, mais une main à 80 ne peut pas sauter jusqu'à 110.
+        return own_level >= opp_level - 10
 
     def _partner_color_remonte(self, partner_bid):
         # Chaque type d'information (soutien d'atout, as exter) n'est révélé qu'une
@@ -267,12 +241,12 @@ class HeuristicPlayer(Player):
             self._raise_contributions.add('ta_jacks')
 
         # Décrochage : uniquement en réponse à un adversaire (jamais au partenaire), et
-        # seulement si la main le justifie réellement une fois qu'on dépasse 100 (1.1).
+        # seulement si la main n'est pas à plus d'un palier de l'adversaire.
         if opponent_bid is not None and best_offer is not None:
             opp_level = opponent_bid[0]
             if opp_level <= 100 and best_offer[0] <= opp_level:
                 next_level = opp_level + 10
-                if next_level <= 110 and self._decrochage_ok(next_level, best_offer[1]):
+                if next_level <= 110 and self._decrochage_ok(best_offer[0], opp_level):
                     best_offer = (next_level, best_offer[1], best_offer[2], best_offer[3])
 
         return best_offer
