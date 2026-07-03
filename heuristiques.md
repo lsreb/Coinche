@@ -40,7 +40,7 @@ Le système d'annonce et la stratégie est connue de tous les joueurs.
 
 # 2.1.1.1) Jeu à l'atout
 
-Dans un premier temps, si les adversaires ont encore des atouts a priori, l'attaque fait tomber les atouts en jouant à la couleur d'atout. Le joueur qui a initié le contrat (attaquant principal) met son valet au premier tour, si c'est le partenaire suiveur du contrat qui ouvre, il joue son plus gros atout, sauf si c'est le 9 second.
+Dans un premier temps, si les adversaires ont encore des atouts a priori, l'attaque fait tomber les atouts en jouant à la couleur d'atout. Le joueur qui a initié le contrat (attaquant principal) met son valet au premier tour s'il l'a ; si c'est le partenaire suiveur du contrat qui ouvre, il joue son plus gros atout. Dans les deux cas, si le meneur n'a pas le valet et que son plus gros atout est le 9 (le 9 second, qu'il ait un seul autre atout ou plusieurs), il ne joue pas le 9 à ce tour mais le plus faible de ses autres atouts, pour garder le 9 pour le tour suivant.
 S'il reste ensuite des atouts, l'attaquant principal joue son 9 d'atout s'il l'a, sinon son atout le plus faible. Le suiveur met son 9 d'atout s'il l'a, sinon son atout le plus faible.
 S'il reste encore de l'atout chez l'adversaire, l'attaquant principal doit rejouer un petit atout pour le faire tomber.
 

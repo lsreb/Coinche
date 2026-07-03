@@ -205,11 +205,12 @@ class GameEngine:
             team_points[last_winner%2] += 10
 
         belote_bonus = {0:0,1:0}
-        for p, cards in tricks_won.items():
-            ranks = {(c.suit,c.rank) for c in cards}
-            if (trump!='SA' and trump!='TA'):
-                if (trump,'K') in ranks and (trump,'Q') in ranks:
+        if trump != 'SA' and trump != 'TA':
+            for p, player in enumerate(self.players):
+                initial_ranks = {(c.suit,c.rank) for c in player.initial_hand}
+                if (trump,'K') in initial_ranks and (trump,'Q') in initial_ranks:
                     belote_bonus[p%2] += 20
+                    break
         for team in [0,1]:
             team_points[team] += belote_bonus[team]
 

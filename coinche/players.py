@@ -309,6 +309,11 @@ class HeuristicPlayer(Player):
             return next(c for c in self.hand if c.suit == trump and c.rank == 'J')
         trumps = [c for c in self.hand if c.suit == trump]
         if trumps:
+            # 9 second : c'est notre plus gros atout (pas de valet), qu'on ait un
+            # seul autre atout ou plusieurs ; on le garde pour le tour suivant.
+            if has_rank(self.hand, trump, '9') and len(trumps) > 1:
+                others = [c for c in trumps if c.rank != '9']
+                return min(others, key=lambda c: self._rank_strength(c, trump, None))
             if has_rank(self.hand, trump, '9'):
                 return next(c for c in trumps if c.rank == '9')
             if self._trumps_remain_with_opponents(trump):
@@ -318,9 +323,12 @@ class HeuristicPlayer(Player):
     def _lead_partner_trump(self, trump, master_hi, master_lo):
         trumps = [c for c in self.hand if c.suit == trump]
         if trumps:
-            nine_second = has_rank(self.hand, trump, '9') and len(trumps) == 2
-            if not nine_second:
-                return max(trumps, key=lambda c: self._rank_strength(c, trump, None))
+            best = max(trumps, key=lambda c: self._rank_strength(c, trump, None))
+            if best.rank == '9' and len(trumps) > 1:
+                # même logique que le tour du valet : on garde le 9 pour le tour suivant
+                others = [c for c in trumps if c.rank != '9']
+                return min(others, key=lambda c: self._rank_strength(c, trump, None))
+            return best
         return self._lead_offsuit_master(trump, master_hi, master_lo)
 
     def _lead_defense(self, trump, master_hi, master_lo):
