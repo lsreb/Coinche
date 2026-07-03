@@ -92,7 +92,7 @@ On suit les mêmes principes que 2.2.2 à SA, mais en considérant les valets et
 
 # 2.3) Défausse
 
-Choix de la couleur à défausser : on défausse une couleur faible, c'est à dire une singlette initiale ou une couleur avec deux cartes  initialement qui sont ni le 10 ni l'as. Sinon une couleur aléatoire
+Choix de la couleur à défausser : on défausse une couleur faible, c'est à dire une singlette initiale ou une couleur avec deux cartes initialement, dans les deux cas à condition que ces cartes ne soient ni le 10 ni l'as. Sinon une couleur aléatoire
 
 Quand un joueur est amené à défausser :
 - si son partenaire est maitre absolu (avec une carte maitre à l'atout ou à la couleur), on défausse la carte la plus forte de la couleur choisie, qui n'est pas une carte maitre absolue.

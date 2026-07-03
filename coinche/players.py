@@ -400,9 +400,7 @@ class HeuristicPlayer(Player):
         weak = []
         for s in SUITS:
             initial_cards = [c for c in initial if c.suit == s]
-            if len(initial_cards) == 1:
-                weak.append(s)
-            elif len(initial_cards) == 2 and not any(c.rank in ('A', '10') for c in initial_cards):
+            if len(initial_cards) in (1, 2) and not any(c.rank in ('A', '10') for c in initial_cards):
                 weak.append(s)
         candidates = [s for s in weak if count_suit(self.hand, s) > 0]
         if not candidates:
