@@ -94,6 +94,38 @@ class HeuristicPlayer(Player):
                 tricks += 1
         return tricks
 
+    def _count_tricks_notrump(self, use_ta: bool) -> int:
+        # Comptage de plis façon 1.1, mais sans terme d'atout (aucune couleur n'est
+        # atout à SA/TA) : on ne crédite un 10 (ou 9 à TA) isolé que s'il est troisième.
+        high, low = ('J', '9') if use_ta else ('A', '10')
+        tricks = 0
+        for s in SUITS:
+            cards = [c for c in self.hand if c.suit == s]
+            ranks = {c.rank for c in cards}
+            if high in ranks and low in ranks:
+                tricks += 2
+            elif low in ranks and len(cards) >= 3:
+                tricks += 1
+            elif high in ranks:
+                tricks += 1
+        return tricks
+
+    def _decrochage_ok(self, next_level: int, trump: str) -> bool:
+        # Décrocher jusqu'à 110+ revient à annoncer implicitement un compte de plis
+        # (1.1) : il faut donc réellement l'avoir, sinon on ne décroche pas (on passe).
+        if next_level < 110:
+            return True
+        needed = (next_level - 60) // 10
+        if trump in SUITS:
+            tricks = self._count_tricks(trump)
+        elif trump == 'SA':
+            tricks = self._count_tricks_notrump(use_ta=False)
+        elif trump == 'TA':
+            tricks = self._count_tricks_notrump(use_ta=True)
+        else:
+            tricks = 0
+        return tricks >= needed
+
     def _partner_color_remonte(self, partner_bid):
         # Chaque type d'information (soutien d'atout, as exter) n'est révélé qu'une
         # fois par donne : deux partenaires ne doivent pas se relancer indéfiniment
@@ -189,22 +221,28 @@ class HeuristicPlayer(Player):
         # 1.2) SA
         aces = sum(1 for c in self.hand if c.rank == 'A')
         tens_non_sec = sum(1 for s in SUITS if has_rank(self.hand, s, '10') and count_suit(self.hand, s) >= 2)
+        sa_candidate = None
         if aces >= 4:
-            candidates.append((100, 'SA', False, False))
+            sa_candidate = (100, 'SA', False, False)
         elif aces == 3:
-            candidates.append((90, 'SA', False, False))
+            sa_candidate = (90, 'SA', False, False)
         elif aces >= 2 and tens_non_sec >= 1:
-            candidates.append((80, 'SA', False, False))
+            sa_candidate = (80, 'SA', False, False)
+        if sa_candidate is not None:
+            candidates.append(sa_candidate)
 
         # 1.3) TA (Valets à la place des As, 9 à la place des 10)
         jacks = sum(1 for c in self.hand if c.rank == 'J')
         nines_non_sec = sum(1 for s in SUITS if has_rank(self.hand, s, '9') and count_suit(self.hand, s) >= 2)
+        ta_candidate = None
         if jacks >= 4:
-            candidates.append((100, 'TA', False, False))
+            ta_candidate = (100, 'TA', False, False)
         elif jacks == 3:
-            candidates.append((90, 'TA', False, False))
+            ta_candidate = (90, 'TA', False, False)
         elif jacks >= 2 and nines_non_sec >= 1:
-            candidates.append((80, 'TA', False, False))
+            ta_candidate = (80, 'TA', False, False)
+        if ta_candidate is not None:
+            candidates.append(ta_candidate)
 
         # Remontée du partenaire
         if partner_bid is not None:
@@ -220,12 +258,21 @@ class HeuristicPlayer(Player):
         # Enchère maximale entre toutes les couleurs/types disponibles
         best_offer = max(candidates, key=lambda b: b[0]) if candidates else None
 
-        # Décrochage : uniquement en réponse à un adversaire (jamais au partenaire)
+        # Nos propres As/Valets sont déjà "annoncés" dès notre déclaration initiale (le
+        # niveau 80/90/100 les encode) : on ne doit pas pouvoir les re-compter plus tard
+        # comme une remontée, sous peine de gonfler artificiellement le contrat.
+        if best_offer is not None and best_offer == sa_candidate:
+            self._raise_contributions.add('sa_aces')
+        if best_offer is not None and best_offer == ta_candidate:
+            self._raise_contributions.add('ta_jacks')
+
+        # Décrochage : uniquement en réponse à un adversaire (jamais au partenaire), et
+        # seulement si la main le justifie réellement une fois qu'on dépasse 100 (1.1).
         if opponent_bid is not None and best_offer is not None:
             opp_level = opponent_bid[0]
             if opp_level <= 100 and best_offer[0] <= opp_level:
                 next_level = opp_level + 10
-                if next_level <= 110:
+                if next_level <= 110 and self._decrochage_ok(next_level, best_offer[1]):
                     best_offer = (next_level, best_offer[1], best_offer[2], best_offer[3])
 
         return best_offer
@@ -234,18 +281,17 @@ class HeuristicPlayer(Player):
     # Jeu de la carte (section 2 de heuristiques.md)
     # ---------------------------------------------------------------
 
-    def _rank_strength(self, card: Card, trump: str, lead_suit: Optional[str]) -> int:
-        # higher means stronger
-        if trump == 'TA' or card.suit == trump:
-            try:
-                return len(TRUMP_ORDER) - TRUMP_ORDER.index(card.rank)
-            except ValueError:
-                return 0
-        else:
-            try:
-                return len(NORMAL_ORDER) - NORMAL_ORDER.index(card.rank)
-            except ValueError:
-                return 0
+    def _rank_strength(self, card: Card, trump: str, lead_suit: Optional[str]):
+        # (is_trump, is_lead, -rank_idx) : même logique que GameEngine.card_order_key,
+        # pour qu'un atout batte toujours une carte hors-atout lors des comparaisons entre couleurs.
+        is_trump = 1 if (trump == 'TA' or card.suit == trump) else 0
+        order = TRUMP_ORDER if is_trump else NORMAL_ORDER
+        try:
+            rank_idx = order.index(card.rank)
+        except ValueError:
+            rank_idx = 99
+        is_lead = 1 if (lead_suit is not None and card.suit == lead_suit) else 0
+        return (is_trump, is_lead, -rank_idx)
 
     def _master_ranks(self, trump: str):
         # Sous TA, toutes les couleurs se comptent comme à l'atout : Valet puis 9.
@@ -408,6 +454,14 @@ class HeuristicPlayer(Player):
                 current_winner = t
 
         if same:
+            if is_attacker and lead == trump and trump in SUITS:
+                # Suite du "faire tomber les atouts" (2.1.1.1) : quel que soit le meneur du
+                # pli, l'attaque continue la séquence valet puis 9 puis le plus faible.
+                for rank in ('J', '9'):
+                    for c in same:
+                        if c.rank == rank:
+                            return c
+                return min(same, key=lambda c: self._rank_strength(c, trump, lead))
             winning = [c for c in same if self._rank_strength(c, trump, lead) > self._rank_strength(current_winner[1], trump, lead)]
             if winning:
                 return min(winning, key=lambda c: self._rank_strength(c, trump, lead))
@@ -418,7 +472,7 @@ class HeuristicPlayer(Player):
             partner_idx = (self.seat + 2) % 4
             if current_winner[0] == partner_idx:
                 return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
-            higher_trumps = [c for c in trumps if self._rank_strength(c, trump, None) >
+            higher_trumps = [c for c in trumps if self._rank_strength(c, trump, lead) >
                               self._rank_strength(current_winner[1], trump, lead)]
             if higher_trumps:
                 if is_attacker:

@@ -2,7 +2,10 @@ import argparse
 import json
 from pathlib import Path
 
+from coinche.game import SUITS, TRUMP_ORDER, NORMAL_ORDER, TRUMP_POINTS, NORMAL_POINTS, SA_POINTS
+
 PLAYER_POSITIONS = {0: 'North', 1: 'West', 2: 'South', 3: 'East'}
+TEAM_LABELS = {0: 'Nord-Sud', 1: 'Ouest-Est'}
 
 CARD_BG = {
     'P': '#0055aa',
@@ -21,10 +24,64 @@ def card_html(card):
     return f'<span class="card" style="background:{color};">{rank}{suit}</span>'
 
 
+def sort_hand(cards, trump):
+    """Trie les cartes par couleur (ordre fixe P/C/K/T), puis dans chaque couleur
+    selon l'ordre de force réel (ordre atout si TA ou si c'est la couleur d'atout,
+    ordre normal sinon)."""
+    def key(card):
+        if len(card) < 2:
+            return (99, 99)
+        suit = card[-1]
+        rank = card[:-1]
+        order = TRUMP_ORDER if (trump == 'TA' or suit == trump) else NORMAL_ORDER
+        suit_idx = SUITS.index(suit) if suit in SUITS else 99
+        rank_idx = order.index(rank) if rank in order else 99
+        return (suit_idx, rank_idx)
+    return sorted(cards, key=key)
+
+
 def hand_html(cards):
     if not cards:
         return '<span class="empty">(vide)</span>'
     return ' '.join(card_html(c) for c in cards)
+
+
+def card_point(card, trump):
+    if len(card) < 2:
+        return 0
+    suit = card[-1]
+    rank = card[:-1]
+    if trump == 'TA' or suit == trump:
+        return TRUMP_POINTS.get(rank, 0)
+    elif trump == 'SA':
+        return SA_POINTS.get(rank, 0)
+    return NORMAL_POINTS.get(rank, 0)
+
+
+def running_team_scores(history, trump):
+    """Score cumulé (points de cartes + belote + 10 de der) après chaque pli,
+    répliquant exactement la logique de GameEngine.play() (game.py)."""
+    seat_cards = {0: [], 1: [], 2: [], 3: []}
+    belote_credited = set()
+    team_points = {0: 0, 1: 0}
+    running = []
+    tricks = history['tricks']
+    for idx, trick in enumerate(tricks, start=1):
+        winner = trick.get('winner')
+        cards = [p['card'] for p in trick['plays']]
+        if winner is not None:
+            team = winner % 2
+            team_points[team] += sum(card_point(c, trump) for c in cards)
+            seat_cards[winner].extend(cards)
+            if trump not in ('SA', 'TA') and winner not in belote_credited:
+                ranks = {c[:-1] for c in seat_cards[winner] if c[-1] == trump}
+                if 'K' in ranks and 'Q' in ranks:
+                    team_points[team] += 20
+                    belote_credited.add(winner)
+            if idx == len(tricks) and trump != 'TA':
+                team_points[team] += 10
+        running.append((team_points[0], team_points[1]))
+    return running
 
 
 def build_stages(history):
@@ -47,8 +104,18 @@ def build_stages(history):
     return initials, stages
 
 
+def player_box_html(seat, css_class, hand_cards, trump, leader_seat=None):
+    label = PLAYER_POSITIONS[seat]
+    is_leader = leader_seat is not None and seat == leader_seat
+    extra_class = ' leader' if is_leader else ''
+    badge = ' <span class="leader-badge" title="Entame du pli">&#9654; entame</span>' if is_leader else ''
+    return f'<div class="player {css_class}{extra_class}">{label}{badge}<br>{hand_html(sort_hand(hand_cards, trump))}</div>'
+
+
 def generate_page(history, out_path):
     initials, stages = build_stages(history)
+    trump = history['contract'].get('trump')
+    scores = running_team_scores(history, trump)
     title = 'Coinche History Viewer'
     tabs = ['Auction'] + [f'Trick {i}' for i in range(1, len(stages)+1)]
 
@@ -70,17 +137,18 @@ def generate_page(history, out_path):
     auction_html = '<div class="auction-grid">' + ''.join(auction_cells) + '</div>'
     hands_layout = ''
     for seat in range(4):
-        hands_layout += f'<div class="hand-card hand-{seat}"><h4>{PLAYER_POSITIONS[seat]}</h4>{hand_html(initials[seat])}</div>'
+        hands_layout += f'<div class="hand-card hand-{seat}"><h4>{PLAYER_POSITIONS[seat]}</h4>{hand_html(sort_hand(initials[seat], trump))}</div>'
 
     stage_panels = []
     for i, stage in enumerate(stages, start=1):
+        leader_seat = stage['plays'][0][0] if stage['plays'] else None
         played_cards_html = ''
         played_cards_list = []
         for seat, card in stage['plays']:
             pos = PLAYER_POSITIONS[seat].lower()
             played_cards_list.append(f'<div class="played-card {pos}">{card_html(card)}</div>')
         played_cards_html = '\n            '.join(played_cards_list)
-        
+
         winner_label = PLAYER_POSITIONS.get(stage['winner'], str(stage['winner'])) if stage['winner'] is not None else '?'
         completed_html = ''
         if stage['completed']:
@@ -89,18 +157,24 @@ def generate_page(history, out_path):
                 plays = ' '.join(f'{PLAYER_POSITIONS.get(p["seat"], p["seat"])}:{card_html(p["card"])}' for p in trick)
                 completed_html += f'<div class="completed-item"><strong>{tidx}</strong>: {plays}</div>'
             completed_html += '</div>'
+        score0, score1 = scores[i - 1]
         panel = f'''
         <div class="panel" id="panel-{i}">
           <div class="board">
-            <div class="player north">{PLAYER_POSITIONS[0]}<br>{hand_html(stage['hands'][0])}</div>
-            <div class="player west">{PLAYER_POSITIONS[1]}<br>{hand_html(stage['hands'][1])}</div>
-            <div class="player east">{PLAYER_POSITIONS[3]}<br>{hand_html(stage['hands'][3])}</div>
-            <div class="player south">{PLAYER_POSITIONS[2]}<br>{hand_html(stage['hands'][2])}</div>
+            {player_box_html(0, 'north', stage['hands'][0], trump, leader_seat)}
+            {player_box_html(1, 'west', stage['hands'][1], trump, leader_seat)}
+            {player_box_html(3, 'east', stage['hands'][3], trump, leader_seat)}
+            {player_box_html(2, 'south', stage['hands'][2], trump, leader_seat)}
             {played_cards_html}
           </div>
           <div class="panel-footer">
             <div><strong>Trick</strong> {stage['trick']}</div>
             <div><strong>Winner</strong> {winner_label}</div>
+            <div class="score-cumul">
+              <strong>Score cumulé</strong>
+              <span class="score-team score-team-0">{TEAM_LABELS[0]}: {score0}</span>
+              <span class="score-team score-team-1">{TEAM_LABELS[1]}: {score1}</span>
+            </div>
           </div>
           {completed_html}
         </div>
@@ -132,12 +206,17 @@ body { font-family: Arial, sans-serif; margin: 0; background: #f7f7f7; color: #2
 .player.south { bottom: 0; left: 50%; transform: translateX(-50%); width: 280px; }
 .player.west { left: 0; top: 50%; transform: translateY(-50%); width: 200px; }
 .player.east { right: 0; top: 50%; transform: translateY(-50%); width: 200px; }
+.player.leader { border-color: #0055aa; border-width: 2px; box-shadow: 0 0 0 3px rgba(0,85,170,.18); }
+.leader-badge { color: #0055aa; font-weight: bold; font-size: .85rem; }
 .played-card { position: absolute; display: flex; align-items: center; justify-content: center; font-size: 1.1rem; }
 .played-card.north { top: 50%; left: 50%; transform: translate(-50%, -80px); }
 .played-card.south { bottom: 50%; left: 50%; transform: translate(-50%, 80px); }
 .played-card.west { left: 50%; top: 50%; transform: translate(-80px, -50%); }
 .played-card.east { right: 50%; top: 50%; transform: translate(80px, -50%); }
-.panel-footer { display: flex; gap: 24px; margin-top: 16px; }
+.panel-footer { display: flex; flex-wrap: wrap; gap: 24px; margin-top: 16px; align-items: center; }
+.score-cumul { display: flex; gap: 12px; align-items: center; }
+.score-team { padding: 4px 10px; border-radius: 8px; background: #eef6ff; font-weight: bold; }
+.score-team-1 { background: #fff0ee; }
 .completed-tricks { margin-top: 20px; padding: 12px; border-radius: 12px; background: #eef6ff; }
 .completed-item { margin-bottom: 8px; }
 .card { display: inline-block; margin: 0 4px 4px 0; padding: 6px 8px; border-radius: 8px; color: white; font-weight: bold; }
