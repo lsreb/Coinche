@@ -11,11 +11,11 @@ class SimplePolicy:
 
     The `choose_card` method must return an index in the hand list.
     """
-    def __init__(self, seed: int = 0):
-        random.seed(seed)
+    def __init__(self, seed: int = None):
+        self.rng = random.Random(seed)
 
     def choose_card(self, hand, leader, trick, trump):
-        return random.randrange(len(hand))
+        return self.rng.randrange(len(hand))
 
 # A simple neural policy sketch (optional, requires torch)
 if torch is not None:

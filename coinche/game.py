@@ -80,19 +80,44 @@ class GameEngine:
             'tricks': [],
         }
 
+    @staticmethod
+    def _normalize_bid(bid):
+        level, trump, coinched, capot = bid
+        if capot or level == 250:
+            level = 250
+            capot = True
+        return (level, trump, coinched, capot)
+
+    @staticmethod
+    def _is_valid_bid(bid, current_best):
+        if bid is None:
+            return False
+        level, trump, coinched, capot = bid
+        if capot or level == 250:
+            level = 250
+        if level < 80 or level > 250 or level % 10 != 0:
+            return False
+        if current_best is None:
+            return True
+        return level >= current_best[0] + 10
+
     def run_auction(self):
         passes = 0
         best = None
         idx = (self.dealer + 1) % 4
         while passes < 4:
             player = self.players[idx]
-            b = player.bid(best)
-            # record bid (None for pass) in history
-            if self.history is not None:
-                self.history['auction'].append({'seat': idx, 'offer': b})
-            if b is None:
+            current_best = best[1] if best else None
+            b = player.bid(current_best)
+            if b is not None:
+                b = self._normalize_bid(b)
+            if b is None or not self._is_valid_bid(b, current_best):
+                if self.history is not None:
+                    self.history['auction'].append({'seat': idx, 'offer': None})
                 passes += 1
             else:
+                if self.history is not None:
+                    self.history['auction'].append({'seat': idx, 'offer': b})
                 best = (idx, b)
                 passes = 0
             idx = (idx+1)%4
@@ -108,7 +133,12 @@ class GameEngine:
             self.taker_idx = bidder_idx
 
         if self.history is not None:
-            self.history['contract'] = {'level': self.contract.level, 'trump': self.contract.trump, 'taker': getattr(self, 'taker_idx', None)}
+            self.history['contract'] = {
+                'level': self.contract.level,
+                'trump': self.contract.trump,
+                'taker': getattr(self, 'taker_idx', None),
+                'capot': self.contract.capot,
+            }
 
     def card_order_key(self, card:Card, lead_suit:Optional[str], trump:str):
         if trump == 'TA' or (card.suit == trump):
@@ -188,3 +218,7 @@ class GameEngine:
 
 if __name__ == '__main__':
     print("ok") #le test
+    sample_hands = [['AT', '10T', 'KC', 'QC', 'JP', '9P', '8P', '7P'],
+            ['AK', '10K', 'KT', 'QT', 'JC', '9C', '8C', '7C'],
+            ['AP', '10P', 'KK', 'QK', 'JT', '9T', '8T', '7T'],
+            ['AC', '10C', 'KP', 'QP', 'JK', '9K', '8K', '7K']]

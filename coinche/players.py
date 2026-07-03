@@ -18,6 +18,8 @@ class Player:
 
     def deal(self, hand: List[Card]):
         self.hand = hand
+        self.initial_hand: List[Card] = list(hand)
+        self._raise_contributions = set()
 
     def bid(self, current_best: Optional[Tuple[int,str,bool,bool]]):
         # return (level:int, trump:str, coinched:bool, capot:bool) or None for pass
@@ -59,60 +61,178 @@ class HeuristicPlayer(Player):
         super().__init__(name)
         self.variant = variant
 
+    # ---------------------------------------------------------------
+    # Enchères (section 1 de heuristiques.md)
+    # ---------------------------------------------------------------
+
+    def _last_bid_info(self):
+        """Retourne (seat, bid) de la dernière enchère réellement faite dans l'enchère en cours."""
+        engine = getattr(self, 'engine', None)
+        if engine is None or not getattr(engine, 'history', None):
+            return None
+        for entry in reversed(engine.history.get('auction', [])):
+            if entry.get('offer') is not None:
+                return entry['seat'], entry['offer']
+        return None
+
+    def _count_tricks(self, trump_suit: str) -> int:
+        # 1 pli par atout, puis en dehors des atouts : 1/As, 1/10 troisième,
+        # 2 pour 10+K troisième, 2 pour As+10 même couleur.
+        tricks = count_suit(self.hand, trump_suit)
+        for s in SUITS:
+            if s == trump_suit:
+                continue
+            cards = [c for c in self.hand if c.suit == s]
+            ranks = {c.rank for c in cards}
+            if 'A' in ranks and '10' in ranks:
+                tricks += 2
+            elif '10' in ranks and 'K' in ranks and len(cards) >= 3:
+                tricks += 2
+            elif 'A' in ranks:
+                tricks += 1
+            elif '10' in ranks and len(cards) >= 3:
+                tricks += 1
+        return tricks
+
+    def _partner_color_remonte(self, partner_bid):
+        # Chaque type d'information (soutien d'atout, as exter) n'est révélé qu'une
+        # fois par donne : deux partenaires ne doivent pas se relancer indéfiniment
+        # sur la même carte, mais peuvent remonter à des tours différents pour des
+        # raisons différentes.
+        level, trump = partner_bid[0], partner_bid[1]
+        if trump in ('SA', 'TA'):
+            return None
+        contrib = self._raise_contributions
+        my_trumps = count_suit(self.hand, trump)
+        has_9_second = has_rank(self.hand, trump, '9') and my_trumps >= 2
+        has_3_trumps = my_trumps >= 3
+        new_level = level
+        gave_support = False
+        if level == 80 and 'color_support' not in contrib and (has_9_second or has_3_trumps):
+            new_level += 10
+            gave_support = True
+        elif level == 80 and 'color_support' not in contrib:
+            return None
+        jack_nine_known = level >= 90 or has_9_second or gave_support
+        if jack_nine_known and my_trumps >= 1 and 'color_exter' not in contrib:
+            exter_aces = sum(1 for c in self.hand if c.rank == 'A' and c.suit != trump)
+            if exter_aces > 0:
+                new_level += 10 * exter_aces
+                contrib.add('color_exter')
+        if gave_support:
+            contrib.add('color_support')
+        return (new_level, trump, False, False) if new_level > level else None
+
+    def _partner_sa_remonte(self, partner_bid):
+        level = partner_bid[0]
+        contrib = self._raise_contributions
+        my_aces = sum(1 for c in self.hand if c.rank == 'A')
+        new_level = level
+        if my_aces > 0 and 'sa_aces' not in contrib:
+            new_level += 10 * my_aces
+            contrib.add('sa_aces')
+        min_partner_aces = {80: 2, 90: 3, 100: 4}.get(level, 0)
+        if min_partner_aces + my_aces >= 4 and 'sa_tens' not in contrib:
+            non_sec_tens = sum(1 for s in SUITS if has_rank(self.hand, s, '10') and count_suit(self.hand, s) >= 2)
+            if non_sec_tens > 0:
+                new_level += 10 * non_sec_tens
+                contrib.add('sa_tens')
+        return (new_level, 'SA', False, False) if new_level > level else None
+
+    def _partner_ta_remonte(self, partner_bid):
+        level = partner_bid[0]
+        contrib = self._raise_contributions
+        my_jacks = sum(1 for c in self.hand if c.rank == 'J')
+        new_level = level
+        if my_jacks > 0 and 'ta_jacks' not in contrib:
+            new_level += 10 * my_jacks
+            contrib.add('ta_jacks')
+        min_partner_jacks = {80: 2, 90: 3, 100: 4}.get(level, 0)
+        if min_partner_jacks + my_jacks >= 4 and 'ta_nines' not in contrib:
+            non_sec_nines = sum(1 for s in SUITS if has_rank(self.hand, s, '9') and count_suit(self.hand, s) >= 2)
+            if non_sec_nines > 0:
+                new_level += 10 * non_sec_nines
+                contrib.add('ta_nines')
+        return (new_level, 'TA', False, False) if new_level > level else None
+
     def bid(self, current_best):
-        # Implement heuristics from heuristiques.md (simplified)
-        # Try color bids first
-        best_offer = None
+        seat = getattr(self, 'seat', None)
+        last = self._last_bid_info()
+        partner_bid = None
+        opponent_bid = None
+        if current_best is not None and last is not None and seat is not None and last[0] != seat:
+            if last[0] % 2 == seat % 2:
+                partner_bid = current_best
+            else:
+                opponent_bid = current_best
+
+        candidates = []
+
+        # 1.1) Couleur
         for s in SUITS:
             cnt = count_suit(self.hand, s)
             has_j = has_rank(self.hand, s, 'J')
             has_9 = has_rank(self.hand, s, '9')
             if cnt >= 4 and has_j and has_9:
-                best_offer = (100, s, False, False)
-                break
+                tricks = self._count_tricks(s)
+                if tricks >= 8:
+                    candidates.append((250, s, False, True))
+                elif tricks >= 5:
+                    candidates.append((tricks * 10 + 60, s, False, False))
+                else:
+                    candidates.append((100, s, False, False))
             elif cnt >= 3 and has_j and has_9:
-                best_offer = (90, s, False, False)
+                candidates.append((90, s, False, False))
             elif cnt >= 3 and has_j:
-                best_offer = (80, s, False, False)
+                candidates.append((80, s, False, False))
 
-        # SA rules
+        # 1.2) SA
         aces = sum(1 for c in self.hand if c.rank == 'A')
-        tens = sum(1 for c in self.hand if c.rank == '10')
+        tens_non_sec = sum(1 for s in SUITS if has_rank(self.hand, s, '10') and count_suit(self.hand, s) >= 2)
         if aces >= 4:
-            best_offer = (100, 'SA', False, False)
+            candidates.append((100, 'SA', False, False))
         elif aces == 3:
-            best_offer = (90, 'SA', False, False)
-        elif aces >= 2 and tens >= 1 and best_offer is None:
-            best_offer = (80, 'SA', False, False)
+            candidates.append((90, 'SA', False, False))
+        elif aces >= 2 and tens_non_sec >= 1:
+            candidates.append((80, 'SA', False, False))
 
-        # TA rules (use J/9 instead of A/10)
+        # 1.3) TA (Valets à la place des As, 9 à la place des 10)
         jacks = sum(1 for c in self.hand if c.rank == 'J')
-        nines = sum(1 for c in self.hand if c.rank == '9')
+        nines_non_sec = sum(1 for s in SUITS if has_rank(self.hand, s, '9') and count_suit(self.hand, s) >= 2)
         if jacks >= 4:
-            best_offer = (100, 'TA', False, False)
+            candidates.append((100, 'TA', False, False))
         elif jacks == 3:
-            best_offer = (90, 'TA', False, False)
-        elif jacks >= 2 and nines >= 1 and best_offer is None:
-            best_offer = (80, 'TA', False, False)
+            candidates.append((90, 'TA', False, False))
+        elif jacks >= 2 and nines_non_sec >= 1:
+            candidates.append((80, 'TA', False, False))
 
-        # More aggressive offers: estimate tricks roughly
-        if best_offer is None:
-            # estimate tricks: trumps + A + 10
-            for s in SUITS:
-                trumps = count_suit(self.hand, s)
-                other_tricks = sum(1 for c in self.hand if c.rank in ('A','10') and c.suit != s)
-                estimate = trumps + other_tricks
-                if estimate >= 6:
-                    best_offer = (110, s, False, False)
-                    break
-        # If still no offer, just pass for now (don't attempt overcall as it can loop)
+        # Remontée du partenaire
+        if partner_bid is not None:
+            if partner_bid[1] == 'SA':
+                r = self._partner_sa_remonte(partner_bid)
+            elif partner_bid[1] == 'TA':
+                r = self._partner_ta_remonte(partner_bid)
+            else:
+                r = self._partner_color_remonte(partner_bid)
+            if r is not None:
+                candidates.append(r)
+
+        # Enchère maximale entre toutes les couleurs/types disponibles
+        best_offer = max(candidates, key=lambda b: b[0]) if candidates else None
+
+        # Décrochage : uniquement en réponse à un adversaire (jamais au partenaire)
+        if opponent_bid is not None and best_offer is not None:
+            opp_level = opponent_bid[0]
+            if opp_level <= 100 and best_offer[0] <= opp_level:
+                next_level = opp_level + 10
+                if next_level <= 110:
+                    best_offer = (next_level, best_offer[1], best_offer[2], best_offer[3])
+
         return best_offer
 
-    def _choose_defausse_suit(self):
-        # pick weakest suit: minimal count, prefer singletons
-        counts = {s: count_suit(self.hand, s) for s in SUITS}
-        # choose suit with minimal count
-        return min(counts.items(), key=lambda x: (x[1], x[0]))[0]
+    # ---------------------------------------------------------------
+    # Jeu de la carte (section 2 de heuristiques.md)
+    # ---------------------------------------------------------------
 
     def _rank_strength(self, card: Card, trump: str, lead_suit: Optional[str]) -> int:
         # higher means stronger
@@ -127,75 +247,204 @@ class HeuristicPlayer(Player):
             except ValueError:
                 return 0
 
+    def _master_ranks(self, trump: str):
+        # Sous TA, toutes les couleurs se comptent comme à l'atout : Valet puis 9.
+        return ('J', '9') if trump == 'TA' else ('A', '10')
+
+    def _card_seen_before(self, suit: str, rank: str) -> bool:
+        engine = getattr(self, 'engine', None)
+        if engine is None or not getattr(engine, 'history', None):
+            return False
+        target = f"{rank}{suit}"
+        for t in engine.history.get('tricks', []):
+            for p in t['plays']:
+                if p['card'] == target:
+                    return True
+        return False
+
+    def _trumps_remain_with_opponents(self, trump: str) -> bool:
+        engine = getattr(self, 'engine', None)
+        seen = sum(1 for c in self.hand if c.suit == trump)
+        if engine is not None and getattr(engine, 'history', None):
+            for t in engine.history.get('tricks', []):
+                for p in t['plays']:
+                    if p['card'][-1] == trump:
+                        seen += 1
+        return seen < 8
+
+    def _lead_offsuit_master(self, trump, master_hi, master_lo):
+        offsuit = [c for c in self.hand if c.suit != trump]
+        if not offsuit:
+            return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+        masters = [c for c in offsuit if c.rank == master_hi]
+        if masters:
+            return masters[0]
+        seconds = [c for c in offsuit if c.rank == master_lo and self._card_seen_before(c.suit, master_hi)]
+        if seconds:
+            return seconds[0]
+        return min(offsuit, key=lambda c: self._rank_strength(c, trump, None))
+
+    def _lead_taker_trump(self, trump, master_hi, master_lo):
+        if has_rank(self.hand, trump, 'J'):
+            return next(c for c in self.hand if c.suit == trump and c.rank == 'J')
+        trumps = [c for c in self.hand if c.suit == trump]
+        if trumps:
+            if has_rank(self.hand, trump, '9'):
+                return next(c for c in trumps if c.rank == '9')
+            if self._trumps_remain_with_opponents(trump):
+                return min(trumps, key=lambda c: self._rank_strength(c, trump, None))
+        return self._lead_offsuit_master(trump, master_hi, master_lo)
+
+    def _lead_partner_trump(self, trump, master_hi, master_lo):
+        trumps = [c for c in self.hand if c.suit == trump]
+        if trumps:
+            nine_second = has_rank(self.hand, trump, '9') and len(trumps) == 2
+            if not nine_second:
+                return max(trumps, key=lambda c: self._rank_strength(c, trump, None))
+        return self._lead_offsuit_master(trump, master_hi, master_lo)
+
+    def _lead_defense(self, trump, master_hi, master_lo):
+        offsuit_masters = [c for c in self.hand if c.rank == master_hi and c.suit != trump]
+        if offsuit_masters:
+            return offsuit_masters[0]
+        singletons = [s for s in SUITS if s != trump and count_suit(self.hand, s) == 1]
+        if singletons:
+            return next(c for c in self.hand if c.suit == singletons[0])
+        return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+
+    def _lead_attack_sa_ta(self, trump, master_hi, master_lo):
+        long_with_master, long_without_master, short_suits = [], [], []
+        for s in SUITS:
+            cards = [c for c in self.hand if c.suit == s]
+            if not cards:
+                continue
+            if len(cards) >= 3:
+                (long_with_master if any(c.rank == master_hi for c in cards) else long_without_master).append((s, cards))
+            else:
+                short_suits.append((s, cards))
+
+        if long_with_master:
+            s, cards = long_with_master[0]
+            if self._card_seen_before(s, master_hi) and any(c.rank == master_lo for c in cards):
+                return next(c for c in cards if c.rank == master_lo)
+            if len(long_with_master) == 1 and not long_without_master and not short_suits:
+                return next(c for c in cards if c.rank == master_hi)
+            # on évite de jouer sa carte maîtresse au premier tour d'une couleur si une autre ouverture existe
+            if long_without_master:
+                _, cards2 = long_without_master[0]
+                return min(cards2, key=lambda c: self._rank_strength(c, trump, None))
+            if short_suits:
+                _, cards2 = short_suits[0]
+                return max(cards2, key=lambda c: self._rank_strength(c, trump, None))
+            return next(c for c in cards if c.rank == master_hi)
+
+        if long_without_master:
+            s, cards = long_without_master[0]
+            return min(cards, key=lambda c: self._rank_strength(c, trump, None))
+
+        if short_suits:
+            s, cards = short_suits[0]
+            return max(cards, key=lambda c: self._rank_strength(c, trump, None))
+
+        return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+
+    def _lead_card(self, trump, is_attacker, is_taker, master_hi, master_lo):
+        if trump in SUITS:
+            if is_attacker and is_taker:
+                return self._lead_taker_trump(trump, master_hi, master_lo)
+            if is_attacker:
+                return self._lead_partner_trump(trump, master_hi, master_lo)
+            return self._lead_defense(trump, master_hi, master_lo)
+        if is_attacker:
+            return self._lead_attack_sa_ta(trump, master_hi, master_lo)
+        return self._lead_defense(trump, master_hi, master_lo)
+
+    def _is_absolute_master_rank(self, trump: str) -> str:
+        return 'J' if (trump in SUITS or trump == 'TA') else 'A'
+
+    def _partner_is_absolute_master(self, current_winner, trump) -> bool:
+        partner_idx = (self.seat + 2) % 4
+        if current_winner[0] != partner_idx:
+            return False
+        card = current_winner[1]
+        master_rank = self._is_absolute_master_rank(trump)
+        if trump in SUITS:
+            # à contrat couleur, seul le Valet d'atout est réellement imparable (une carte
+            # maîtresse hors-atout peut toujours être coupée par un adversaire encore pourvu d'atout)
+            return card.suit == trump and card.rank == master_rank
+        return card.rank == master_rank
+
+    def _choose_defausse_suit(self):
+        # couleur faible = singlette initiale, ou couleur à 2 cartes initiales sans 10 ni As
+        initial = getattr(self, 'initial_hand', self.hand)
+        weak = []
+        for s in SUITS:
+            initial_cards = [c for c in initial if c.suit == s]
+            if len(initial_cards) == 1:
+                weak.append(s)
+            elif len(initial_cards) == 2 and not any(c.rank in ('A', '10') for c in initial_cards):
+                weak.append(s)
+        candidates = [s for s in weak if count_suit(self.hand, s) > 0]
+        if not candidates:
+            candidates = [s for s in SUITS if count_suit(self.hand, s) > 0]
+        return random.choice(candidates) if candidates else SUITS[0]
+
+    def _discard(self, trump, current_winner):
+        s = self._choose_defausse_suit()
+        cand = [c for c in self.hand if c.suit == s] or self.hand
+        if self._partner_is_absolute_master(current_winner, trump):
+            master_rank = self._is_absolute_master_rank(trump)
+            non_master = [c for c in cand if c.rank != master_rank]
+            pool = non_master or cand
+            return max(pool, key=lambda c: self._rank_strength(c, trump, None))
+        return min(cand, key=lambda c: self._rank_strength(c, trump, None))
+
+    def _follow_card(self, trick, trump, is_attacker, master_hi, master_lo):
+        lead = trick[0][1].suit
+        same = [c for c in self.hand if c.suit == lead]
+        current_winner = trick[0]
+        for t in trick[1:]:
+            if self._rank_strength(t[1], trump, lead) > self._rank_strength(current_winner[1], trump, lead):
+                current_winner = t
+
+        if same:
+            winning = [c for c in same if self._rank_strength(c, trump, lead) > self._rank_strength(current_winner[1], trump, lead)]
+            if winning:
+                return min(winning, key=lambda c: self._rank_strength(c, trump, lead))
+            return min(same, key=lambda c: self._rank_strength(c, trump, lead))
+
+        trumps = [c for c in self.hand if c.suit == trump] if trump in SUITS else []
+        if trumps:
+            partner_idx = (self.seat + 2) % 4
+            if current_winner[0] == partner_idx:
+                return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+            higher_trumps = [c for c in trumps if self._rank_strength(c, trump, None) >
+                              self._rank_strength(current_winner[1], trump, lead)]
+            if higher_trumps:
+                if is_attacker:
+                    # attaque : économie, la plus petite carte qui gagne
+                    return min(higher_trumps, key=lambda c: self._rank_strength(c, trump, None))
+                # défense : coupe avec le plus gros atout, sauf 9 troisième ou As quatrième
+                nine_third = has_rank(self.hand, trump, '9') and len(trumps) == 3
+                as_fourth = has_rank(self.hand, trump, 'A') and len(trumps) == 4
+                if nine_third or as_fourth:
+                    return min(higher_trumps, key=lambda c: self._rank_strength(c, trump, None))
+                return max(higher_trumps, key=lambda c: self._rank_strength(c, trump, None))
+            return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+
+        return self._discard(trump, current_winner)
+
     def play_card(self, seat:int, leader:int, trick:list, trump:str):
-        # Heuristic play (simplified from heuristiques.md)
         engine = getattr(self, 'engine', None)
         taker = getattr(engine, 'taker_idx', None)
-        attacker = (taker is not None) and (taker % 2 == self.seat % 2)
+        is_attacker = (taker is not None) and (taker % 2 == self.seat % 2)
+        is_taker = (taker == self.seat)
+        master_hi, master_lo = self._master_ranks(trump)
 
         if not trick:
-            # opening lead
-            if attacker and engine and taker == self.seat:
-                # preneur leads: play valet of trump if present to draw
-                if has_rank(self.hand, trump, 'J'):
-                    choice = next(c for c in self.hand if c.suit==trump and c.rank=='J')
-                else:
-                    # lead highest trump if have, else play master outside
-                    tr = [c for c in self.hand if c.suit==trump]
-                    if tr:
-                        choice = max(tr, key=lambda c: self._rank_strength(c, trump, None))
-                    else:
-                        masters = [c for c in self.hand if c.rank in ('A','10')]
-                        if masters:
-                            choice = max(masters, key=lambda c: self._rank_strength(c, trump, None))
-                        else:
-                            # play smallest
-                            choice = min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
-            else:
-                # non-preneur or no contract: follow general rules
-                masters = [c for c in self.hand if c.rank in ('A','10')]
-                if masters:
-                    choice = max(masters, key=lambda c: self._rank_strength(c, trump, None))
-                else:
-                    choice = min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+            choice = self._lead_card(trump, is_attacker, is_taker, master_hi, master_lo)
         else:
-            lead = trick[0][1].suit
-            same = [c for c in self.hand if c.suit==lead]
-            # find current winner of trick
-            current_winner = trick[0]
-            for t in trick[1:]:
-                if self._rank_strength(t[1], trump, lead) > self._rank_strength(current_winner[1], trump, lead):
-                    current_winner = t
-
-            if same:
-                # if can beat current, play smallest that wins, else smallest
-                winning = [c for c in same if self._rank_strength(c, trump, lead) > self._rank_strength(current_winner[1], trump, lead)]
-                if winning:
-                    choice = min(winning, key=lambda c: self._rank_strength(c, trump, lead))
-                else:
-                    choice = min(same, key=lambda c: self._rank_strength(c, trump, lead))
-            else:
-                trumps = [c for c in self.hand if c.suit==trump]
-                if trumps:
-                    # if partner is winning, dump smallest; else try to overtrump
-                    partner_idx = (self.seat + 2) % 4
-                    partner_winning = (current_winner[0] == partner_idx)
-                    if partner_winning:
-                        choice = min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
-                    else:
-                        higher_trumps = [c for c in trumps if self._rank_strength(c, trump, None) > self._rank_strength(current_winner[1], trump, lead)]
-                        if higher_trumps:
-                            choice = min(higher_trumps, key=lambda c: self._rank_strength(c, trump, None))
-                        else:
-                            choice = min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
-                else:
-                    # no trump: discard worst card from weakest suit
-                    s = self._choose_defausse_suit()
-                    cand = [c for c in self.hand if c.suit==s]
-                    if cand:
-                        choice = min(cand, key=lambda c: self._rank_strength(c, trump, None))
-                    else:
-                        choice = min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+            choice = self._follow_card(trick, trump, is_attacker, master_hi, master_lo)
 
         self.hand.remove(choice)
         return choice
@@ -230,3 +479,19 @@ def create_player(strategy: str, name: str):
         return RLPlayer(name)
     # default
     return RandomPlayer(name)
+
+
+#Pour les tests 
+
+def main():
+    print("ok") #le test
+    hand = [Card('P','A'), Card('P','10'), Card('K','A'), Card('T','Q'), Card('T','J'), Card('T','9'), Card('T','8'), Card('T','7')]
+    player1=HeuristicPlayer("Player1")
+    player1.deal(hand)
+    print("Player1 hand:", hand)
+    rep = player1.bid(None)
+    print("Player1 bid:", rep)
+    print(hand[1].suit)
+
+if __name__ == '__main__':
+    main()

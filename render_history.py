@@ -59,7 +59,10 @@ def generate_page(history, out_path):
             text = 'Pass'
         else:
             if isinstance(offer, tuple) and len(offer) >= 2:
-                text = f'{offer[0]}{offer[1]}'
+                if len(offer) >= 4 and offer[3]:
+                    text = '250'
+                else:
+                    text = f'{offer[0]}{offer[1]}'
             else:
                 text = str(offer)
         auction_cells.append(f'<div class="bid-cell"><strong>{PLAYER_POSITIONS.get(step["seat"], step["seat"])}</strong><br/>{text}</div>')
@@ -173,8 +176,12 @@ buttons.forEach(function(btn) {
 </body>
 </html>
 """
+    if history['contract'].get('capot'):
+        contract_text = '250'
+    else:
+        contract_text = f"{history['contract']['level']}{history['contract'].get('trump')}"
     html = html.replace('__TITLE__', title)
-    html = html.replace('__CONTRACT__', f"{history['contract']['level']}{history['contract']['trump']}")
+    html = html.replace('__CONTRACT__', contract_text)
     html = html.replace('__TAKER__', str(PLAYER_POSITIONS.get(history['contract'].get('taker'), history['contract'].get('taker'))))
     html = html.replace('__TABS__', tabs_html)
     html = html.replace('__AUCTION__', auction_html)
