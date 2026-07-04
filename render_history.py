@@ -74,6 +74,7 @@ def running_team_scores(history, trump):
                 break
     belote_played = 0
     belote_awarded = False
+    belote_awarded_trick = None
     team_points = {0: 0, 1: 0}
     running = []
     tricks = history['tricks']
@@ -101,10 +102,14 @@ def running_team_scores(history, trump):
                 if belote_played >= 2:
                     team_points[belote_seat % 2] += 20
                     belote_awarded = True
+                    belote_awarded_trick = idx
             if capot_team is None and is_last and trump != 'TA':
                 team_points[team] += 10
         running.append((team_points[0], team_points[1]))
-    return running
+    belote_info = None
+    if belote_awarded_trick is not None:
+        belote_info = {'team': belote_seat % 2, 'trick': belote_awarded_trick}
+    return running, belote_info
 
 
 def build_stages(history):
@@ -138,7 +143,7 @@ def player_box_html(seat, css_class, hand_cards, trump, leader_seat=None):
 def generate_page(history, out_path):
     initials, stages = build_stages(history)
     trump = history['contract'].get('trump')
-    scores = running_team_scores(history, trump)
+    scores, belote_info = running_team_scores(history, trump)
     title = 'Coinche History Viewer'
     tabs = ['Auction'] + [f'Trick {i}' for i in range(1, len(stages)+1)]
 
@@ -181,6 +186,14 @@ def generate_page(history, out_path):
                 completed_html += f'<div class="completed-item"><strong>{tidx}</strong>: {plays}</div>'
             completed_html += '</div>'
         score0, score1 = scores[i - 1]
+        belote_badge_0 = ''
+        belote_badge_1 = ''
+        if belote_info is not None and i >= belote_info['trick']:
+            badge = ' <span class="belote-badge" title="Belote (Roi+Dame d\'atout)">&#9734; belot&eacute;</span>'
+            if belote_info['team'] == 0:
+                belote_badge_0 = badge
+            else:
+                belote_badge_1 = badge
         panel = f'''
         <div class="panel" id="panel-{i}">
           <div class="board">
@@ -195,8 +208,8 @@ def generate_page(history, out_path):
             <div><strong>Winner</strong> {winner_label}</div>
             <div class="score-cumul">
               <strong>Score cumulé</strong>
-              <span class="score-team score-team-0">{TEAM_LABELS[0]}: {score0}</span>
-              <span class="score-team score-team-1">{TEAM_LABELS[1]}: {score1}</span>
+              <span class="score-team score-team-0">{TEAM_LABELS[0]}: {score0}{belote_badge_0}</span>
+              <span class="score-team score-team-1">{TEAM_LABELS[1]}: {score1}{belote_badge_1}</span>
             </div>
           </div>
           {completed_html}
@@ -240,6 +253,7 @@ body { font-family: Arial, sans-serif; margin: 0; background: #f7f7f7; color: #2
 .score-cumul { display: flex; gap: 12px; align-items: center; }
 .score-team { padding: 4px 10px; border-radius: 8px; background: #eef6ff; font-weight: bold; }
 .score-team-1 { background: #fff0ee; }
+.belote-badge { color: #b8860b; font-weight: bold; font-size: .85rem; margin-left: 4px; }
 .completed-tricks { margin-top: 20px; padding: 12px; border-radius: 12px; background: #eef6ff; }
 .completed-item { margin-bottom: 8px; }
 .card { display: inline-block; margin: 0 4px 4px 0; padding: 6px 8px; border-radius: 8px; color: white; font-weight: bold; }
