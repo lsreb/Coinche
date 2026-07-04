@@ -60,17 +60,20 @@ En priorité, l'attaque veut ouvrir un pli dans ses couleurs où initialement il
 
 Ordre de priorité d'ouverture de couleur : 
 -couleur longue (3 cartes ou plus) avec as : on ouvre de l'as, et plus tard de la pire carte sauf si on est encore maitre (si on peut jouer la meilleure carte restante)
--couleur longue sans as : on joue la plus petite carte
+-couleur longue sans as, avec un 10 (3 cartes ou plus): on joue la plus petite carte
 -couleur sans as : on joue la carte la plus forte
 
-Style de jeu : sauf pour récupérer un 10 adverse, on évite de jouer son as au premier tour d'une couleur. On essaie de récupérer la maitrise des plis sans investir d'as au premier tour d'une couleur.
-Si un as est déjà passé, et qu'on a le 10, on le joue pour devenir maitre, et on essaie de rejouer dans cette couleur.
+Style de jeu : sauf pour récupérer un 10 adverse, on évite de jouer son as au premier tour d'une couleur, sauf si le partenaire a fait sa première ouverture (première fois qu'il fait une entame) dans cette couleur, dans ce cas on met l'as et on rejoue la même couleur. On essaie sinon en général de récupérer la maitrise des plis sans investir d'as au premier tour d'une couleur.
+
+Si un as est déjà passé, et qu'on a le 10, on le joue pour devenir maitre, et on essaie de rejouer dans cette couleur tant qu'on est maitre. On fait cela en priorité plutôt qu'ouvrir une nouvelle couleur.
 
 Quand l'attaque n'a plus qu'une couleur forte en main (un seul As maitre, pas de 10 second), il ouvre avec son as.
 
 # 2.1.3) Jeu d'attaque à TA
 
 Voir 2.1.2 à SA, mais en considérant les valets au lieu des As, et les 9 au lieu des 10.
+
+A TA contrairement à SA, le partenaire de celui qui a initié le contrat TA cherche à ouvrir dans la couleur de son 9 second (ou troisième ou plus) pour faire comprendre à son partenaire qu'il a le 9.
 
 # 2.2) Jeu de défense
 

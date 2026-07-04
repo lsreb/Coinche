@@ -445,6 +445,30 @@ class HeuristicPlayer(Player):
             return None
         return max(available, key=lambda s: lengths[s])
 
+    def _suit_to_replay_for_partner(self, master_hi):
+        # Si mon partenaire a fait sa toute première ouverture dans une couleur et que
+        # j'ai pris avec ma carte maitresse (l'as en SA, le valet en TA), je dois
+        # rejouer cette couleur en priorité tant que j'y reste maitre (heuristiques.md
+        # §2.1.2/§2.1.3).
+        engine = getattr(self, 'engine', None)
+        seat = getattr(self, 'seat', None)
+        if engine is None or not getattr(engine, 'history', None) or seat is None:
+            return None
+        partner_idx = (seat + 2) % 4
+        partner_led_suits = set()
+        for trick in engine.history.get('tricks', []):
+            plays = trick.get('plays', [])
+            if not plays or plays[0]['seat'] != partner_idx:
+                continue
+            lead_suit = plays[0]['card'][-1]
+            if lead_suit in partner_led_suits:
+                continue
+            partner_led_suits.add(lead_suit)
+            my_play = next((p['card'] for p in plays if p['seat'] == seat), None)
+            if my_play and my_play[:-1] == master_hi and my_play[-1] == lead_suit:
+                return lead_suit
+        return None
+
     def _lead_offsuit_master(self, trump, master_hi, master_lo):
         offsuit = [c for c in self.hand if c.suit != trump]
         if not offsuit:
@@ -507,16 +531,54 @@ class HeuristicPlayer(Player):
             return next(c for c in self.hand if c.suit == singletons[0])
         return self._weakest(self.hand, trump)
 
-    def _lead_attack_sa_ta(self, trump, master_hi, master_lo):
+    def _prefer_9_second_suit(self, candidates, trump, is_taker):
+        # A TA, le partenaire du preneur (pas lui-même) cherche à ouvrir dans la
+        # couleur où il a un 9 second (ou plus) pour faire comprendre à son partenaire
+        # qu'il a le 9 (heuristiques.md §2.1.3, spécifique à TA).
+        if trump != 'TA' or is_taker or len(candidates) < 2:
+            return candidates
+        preferred = [(s, cards) for s, cards in candidates
+                     if has_rank(self.hand, s, '9') and count_suit(self.hand, s) >= 2]
+        rest = [c for c in candidates if c not in preferred]
+        return preferred + rest if preferred else candidates
+
+    def _lead_attack_sa_ta(self, trump, master_hi, master_lo, is_taker=False):
+        # Priorité absolue : une couleur devenue maitresse par élimination (le 10/9
+        # après passage de l'as/valet) se joue avant tout, y compris avant de rendre
+        # la main à la couleur ouverte par le partenaire (heuristiques.md §2.1.2/§2.1.3).
+        # master_hi (as/valet) est toujours trivialement "confirmé" (rang le plus haut
+        # de son ordre) : ce n'est pas de lui qu'il s'agit ici.
+        confirmed_by_suit = {}
+        for c in self.hand:
+            if c.rank != master_hi and self._is_confirmed_master(c, trump):
+                confirmed_by_suit.setdefault(c.suit, []).append(c)
+        if confirmed_by_suit:
+            suit = next(iter(confirmed_by_suit))
+            return self._strongest(confirmed_by_suit[suit], trump)
+
+        # Sinon, si mon partenaire a fait sa première ouverture dans une couleur et
+        # que j'ai pris avec ma carte maitresse, je rejoue cette couleur tant que j'y
+        # ai encore des cartes : pas besoin d'une certitude totale sur la carte
+        # restante, la prise avec l'as/valet suffit.
+        replay_suit = self._suit_to_replay_for_partner(master_hi)
+        if replay_suit is not None and count_suit(self.hand, replay_suit) > 0:
+            replay_cards = [c for c in self.hand if c.suit == replay_suit]
+            return self._strongest(replay_cards, trump)
+
         long_with_master, long_without_master, short_suits = [], [], []
         for s in SUITS:
             cards = [c for c in self.hand if c.suit == s]
             if not cards:
                 continue
-            if len(cards) >= 3:
-                (long_with_master if any(c.rank == master_hi for c in cards) else long_without_master).append((s, cards))
+            if len(cards) >= 3 and any(c.rank == master_hi for c in cards):
+                long_with_master.append((s, cards))
+            elif len(cards) >= 3 and any(c.rank == master_lo for c in cards):
+                # couleur longue sans as, avec un 10 (heuristiques.md §2.1.2)
+                long_without_master.append((s, cards))
             else:
                 short_suits.append((s, cards))
+        long_without_master = self._prefer_9_second_suit(long_without_master, trump, is_taker)
+        short_suits = self._prefer_9_second_suit(short_suits, trump, is_taker)
 
         if long_with_master:
             s, cards = long_with_master[0]
@@ -551,7 +613,7 @@ class HeuristicPlayer(Player):
                 return self._lead_partner_trump(trump, master_hi, master_lo)
             return self._lead_defense(trump, master_hi, master_lo)
         if is_attacker:
-            return self._lead_attack_sa_ta(trump, master_hi, master_lo)
+            return self._lead_attack_sa_ta(trump, master_hi, master_lo, is_taker)
         return self._lead_defense(trump, master_hi, master_lo)
 
     def _is_absolute_master_rank(self, trump: str) -> str:
