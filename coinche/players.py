@@ -305,6 +305,25 @@ class HeuristicPlayer(Player):
                         seen += 1
         return seen < 8
 
+    def _trump_already_led(self, trump: str) -> bool:
+        # La retenue du "9 second" ne vaut que pour le tout premier tour d'atout :
+        # au tour suivant, la consigne s'inverse (on joue le 9 si on l'a).
+        engine = getattr(self, 'engine', None)
+        if engine is None or not getattr(engine, 'history', None):
+            return False
+        for t in engine.history.get('tricks', []):
+            for p in t['plays']:
+                if p['card'][-1] == trump:
+                    return True
+        return False
+
+    def _is_confirmed_master(self, card: Card, trump: str) -> bool:
+        # Vraie même si ce n'est ni l'as ni le 10 : toutes les cartes qui la
+        # dominent dans sa couleur sont déjà tombées, donc elle gagne à coup sûr.
+        order = TRUMP_ORDER if (trump == 'TA' or card.suit == trump) else NORMAL_ORDER
+        higher_ranks = order[:order.index(card.rank)]
+        return all(self._card_seen_before(card.suit, r) for r in higher_ranks)
+
     def _lead_offsuit_master(self, trump, master_hi, master_lo):
         offsuit = [c for c in self.hand if c.suit != trump]
         if not offsuit:
@@ -315,6 +334,9 @@ class HeuristicPlayer(Player):
         seconds = [c for c in offsuit if c.rank == master_lo and self._card_seen_before(c.suit, master_hi)]
         if seconds:
             return seconds[0]
+        confirmed = [c for c in offsuit if self._is_confirmed_master(c, trump)]
+        if confirmed:
+            return max(confirmed, key=lambda c: self._rank_strength(c, trump, None))
         return min(offsuit, key=lambda c: self._rank_strength(c, trump, None))
 
     def _lead_taker_trump(self, trump, master_hi, master_lo):
@@ -322,9 +344,14 @@ class HeuristicPlayer(Player):
             return next(c for c in self.hand if c.suit == trump and c.rank == 'J')
         trumps = [c for c in self.hand if c.suit == trump]
         if trumps:
-            # 9 second : c'est notre plus gros atout (pas de valet), qu'on ait un
-            # seul autre atout ou plusieurs ; on le garde pour le tour suivant.
-            if has_rank(self.hand, trump, '9') and len(trumps) > 1:
+            if self._trump_already_led(trump) and not self._trumps_remain_with_opponents(trump):
+                # plus aucun atout ne reste chez l'adversaire : inutile de jouer notre
+                # dernier atout (on le sait seul à en avoir), autant le garder pour une
+                # coupe éventuelle et attaquer ailleurs.
+                return self._lead_offsuit_master(trump, master_hi, master_lo)
+            # 9 second : uniquement au tout premier tour d'atout, on garde le 9
+            # (notre plus gros atout, faute de valet) pour le tour suivant.
+            if (not self._trump_already_led(trump)) and has_rank(self.hand, trump, '9') and len(trumps) > 1:
                 others = [c for c in trumps if c.rank != '9']
                 return min(others, key=lambda c: self._rank_strength(c, trump, None))
             if has_rank(self.hand, trump, '9'):
@@ -336,8 +363,12 @@ class HeuristicPlayer(Player):
     def _lead_partner_trump(self, trump, master_hi, master_lo):
         trumps = [c for c in self.hand if c.suit == trump]
         if trumps:
+            if self._trump_already_led(trump) and not self._trumps_remain_with_opponents(trump):
+                # même raison que côté attaquant principal : ne pas gâcher le dernier
+                # atout quand on sait qu'on est seul à en tenir encore.
+                return self._lead_offsuit_master(trump, master_hi, master_lo)
             best = max(trumps, key=lambda c: self._rank_strength(c, trump, None))
-            if best.rank == '9' and len(trumps) > 1:
+            if best.rank == '9' and len(trumps) > 1 and not self._trump_already_led(trump):
                 # même logique que le tour du valet : on garde le 9 pour le tour suivant
                 others = [c for c in trumps if c.rank != '9']
                 return min(others, key=lambda c: self._rank_strength(c, trump, None))

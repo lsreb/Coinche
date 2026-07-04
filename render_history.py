@@ -60,9 +60,20 @@ def card_point(card, trump):
 
 def running_team_scores(history, trump):
     """Score cumulé (points de cartes + belote + 10 de der) après chaque pli,
-    répliquant exactement la logique de GameEngine.play() (game.py)."""
-    seat_cards = {0: [], 1: [], 2: [], 3: []}
-    belote_credited = set()
+    répliquant exactement la logique de GameEngine.play() (game.py).
+
+    La belote ne compte que si un même joueur détient le Roi ET la Dame
+    d'atout dans sa main initiale ; elle est créditée dès que ce joueur a
+    joué la seconde des deux cartes, quel que soit le vainqueur du pli."""
+    belote_seat = None
+    if trump not in ('SA', 'TA'):
+        for seat, hand in enumerate(history['deal_hands']):
+            ranks = {c[:-1] for c in hand if c[-1] == trump}
+            if 'K' in ranks and 'Q' in ranks:
+                belote_seat = seat
+                break
+    belote_played = 0
+    belote_awarded = False
     team_points = {0: 0, 1: 0}
     running = []
     tricks = history['tricks']
@@ -72,12 +83,13 @@ def running_team_scores(history, trump):
         if winner is not None:
             team = winner % 2
             team_points[team] += sum(card_point(c, trump) for c in cards)
-            seat_cards[winner].extend(cards)
-            if trump not in ('SA', 'TA') and winner not in belote_credited:
-                ranks = {c[:-1] for c in seat_cards[winner] if c[-1] == trump}
-                if 'K' in ranks and 'Q' in ranks:
-                    team_points[team] += 20
-                    belote_credited.add(winner)
+            if belote_seat is not None and not belote_awarded:
+                for p in trick['plays']:
+                    if p['seat'] == belote_seat and p['card'][-1] == trump and p['card'][:-1] in ('K', 'Q'):
+                        belote_played += 1
+                if belote_played >= 2:
+                    team_points[belote_seat % 2] += 20
+                    belote_awarded = True
             if idx == len(tricks) and trump != 'TA':
                 team_points[team] += 10
         running.append((team_points[0], team_points[1]))
