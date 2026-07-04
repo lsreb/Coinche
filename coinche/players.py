@@ -111,14 +111,27 @@ class HeuristicPlayer(Player):
                 return entry['offer']
         return None
 
-    def _sa_known_aces(self, bidder_seat, bid):
-        # Comme pour un décrochage à la couleur : si l'annonce SA de `bidder_seat` suit
-        # immédiatement une offre adverse d'un palier inférieur, elle peut elle-même être
-        # un décrochage (donc représenter un as de moins que ce que le palier indique).
-        # On retrouve l'enchère précise dans l'historique (pas juste l'avant-dernière),
-        # car cette fonction peut être appelée bien après coup, sur une enchère passée.
+    def _last_partner_bid(self):
+        """Dernière offre de mon partenaire dans l'enchère en cours, même si un
+        adversaire a enchéri depuis (contrairement à _last_bid_info, qui ne regarde
+        que la toute dernière offre de l'enchère)."""
+        engine = getattr(self, 'engine', None)
+        seat = getattr(self, 'seat', None)
+        if engine is None or not getattr(engine, 'history', None) or seat is None:
+            return None
+        partner_seat = (seat + 2) % 4
+        for entry in reversed(engine.history.get('auction', [])):
+            if entry['seat'] == partner_seat and entry.get('offer') is not None:
+                return entry['offer']
+        return None
+
+    def _decrochage_adjusted_level(self, bidder_seat, bid):
+        # Si l'enchère `bid` de `bidder_seat` suit immédiatement une offre adverse d'un
+        # palier inférieur, elle peut elle-même être un décrochage : elle représente
+        # alors un palier réel inférieur de 10 à ce qu'elle annonce. On retrouve
+        # l'enchère précise dans l'historique (pas juste l'avant-dernière), car cette
+        # fonction peut être appelée bien après coup, sur une enchère passée.
         level = bid[0]
-        aces_table = {80: 2, 90: 3, 100: 4}
         engine = getattr(self, 'engine', None)
         if engine is not None and getattr(engine, 'history', None):
             made = [(e['seat'], tuple(e['offer'])) for e in engine.history.get('auction', []) if e.get('offer') is not None]
@@ -127,9 +140,27 @@ class HeuristicPlayer(Player):
                     if i >= 1:
                         prev_seat, prev_offer = made[i - 1]
                         if prev_seat % 2 != bidder_seat % 2 and prev_offer[0] == level - 10:
-                            return aces_table.get(level - 10, 0)
+                            return level - 10
                     break
-        return aces_table.get(level, 0)
+        return level
+
+    def _sa_known_aces(self, bidder_seat, bid):
+        aces_table = {80: 2, 90: 3, 100: 4}
+        return aces_table.get(self._decrochage_adjusted_level(bidder_seat, bid), 0)
+
+    def _my_earlier_bid_of_type(self, bid_type):
+        """Ma première offre de ce type (SA/TA) dans l'enchère en cours, si j'en ai
+        fait une avant l'offre actuelle du partenaire (signe que sa remontée inclut
+        déjà l'information que j'ai moi-même révélée, à ne pas recompter)."""
+        engine = getattr(self, 'engine', None)
+        seat = getattr(self, 'seat', None)
+        if engine is None or not getattr(engine, 'history', None) or seat is None:
+            return None
+        for entry in engine.history.get('auction', []):
+            offer = entry.get('offer')
+            if entry['seat'] == seat and offer is not None and offer[1] == bid_type:
+                return offer
+        return None
 
     def _partner_sa_to_color(self, partner_seat, partner_bid, own_color_candidates):
         # On peut basculer sur sa propre couleur plutôt que de simplement soutenir le
@@ -183,6 +214,19 @@ class HeuristicPlayer(Player):
             contrib.add('color_support')
         return (new_level, trump, False, False) if new_level > level else None
 
+    def _combined_count(self, partner_bid, bid_type, my_count):
+        # Combien de cartes maitresses (as pour SA, valets pour TA) l'équipe a-t-elle
+        # réellement, en cumulant l'annonce (décrochage compris) du partenaire et les
+        # miennes ? Si la remontée du partenaire vient elle-même de ma propre annonce
+        # antérieure du même type, mes cartes y sont déjà comptées : pas de double compte.
+        table = {80: 2, 90: 3, 100: 4}
+        partner_seat = (getattr(self, 'seat', 0) + 2) % 4
+        genuine_level = self._decrochage_adjusted_level(partner_seat, partner_bid)
+        base = table.get(genuine_level, 0)
+        if self._my_earlier_bid_of_type(bid_type) is not None:
+            return base
+        return base + my_count
+
     def _partner_sa_remonte(self, partner_bid):
         level = partner_bid[0]
         contrib = self._raise_contributions
@@ -191,8 +235,8 @@ class HeuristicPlayer(Player):
         if my_aces > 0 and 'sa_aces' not in contrib:
             new_level += 10 * my_aces
             contrib.add('sa_aces')
-        min_partner_aces = {80: 2, 90: 3, 100: 4}.get(level, 0)
-        if min_partner_aces + my_aces >= 4 and 'sa_tens' not in contrib:
+        combined_aces = self._combined_count(partner_bid, 'SA', my_aces)
+        if combined_aces >= 4 and 'sa_tens' not in contrib:
             non_sec_tens = sum(1 for s in SUITS if has_rank(self.hand, s, '10') and count_suit(self.hand, s) >= 2)
             if non_sec_tens > 0:
                 new_level += 10 * non_sec_tens
@@ -207,8 +251,8 @@ class HeuristicPlayer(Player):
         if my_jacks > 0 and 'ta_jacks' not in contrib:
             new_level += 10 * my_jacks
             contrib.add('ta_jacks')
-        min_partner_jacks = {80: 2, 90: 3, 100: 4}.get(level, 0)
-        if min_partner_jacks + my_jacks >= 4 and 'ta_nines' not in contrib:
+        combined_jacks = self._combined_count(partner_bid, 'TA', my_jacks)
+        if combined_jacks >= 4 and 'ta_nines' not in contrib:
             non_sec_nines = sum(1 for s in SUITS if has_rank(self.hand, s, '9') and count_suit(self.hand, s) >= 2)
             if non_sec_nines > 0:
                 new_level += 10 * non_sec_nines
@@ -225,6 +269,12 @@ class HeuristicPlayer(Player):
                 partner_bid = current_best
             else:
                 opponent_bid = current_best
+                # Un adversaire a enchéri après mon partenaire : je peux quand même
+                # remonter la dernière annonce de mon partenaire, pas seulement décrocher
+                # sur ma propre main (heuristiques.md §1.1, note TA/SA/couleur).
+                earlier_partner_bid = self._last_partner_bid()
+                if earlier_partner_bid is not None:
+                    partner_bid = earlier_partner_bid
 
         candidates = []
 
@@ -279,7 +329,8 @@ class HeuristicPlayer(Player):
                 if r is not None:
                     candidates.append(r)
                 own_color_candidates = [c for c in candidates if c[1] in SUITS]
-                r2 = self._partner_sa_to_color(last[0], partner_bid, own_color_candidates)
+                partner_seat = (seat + 2) % 4
+                r2 = self._partner_sa_to_color(partner_seat, partner_bid, own_color_candidates)
                 if r2 is not None:
                     candidates.append(r2)
             elif partner_bid[1] == 'TA':
@@ -291,8 +342,12 @@ class HeuristicPlayer(Player):
                 if r is not None:
                     candidates.append(r)
 
-        # Enchère maximale entre toutes les couleurs/types disponibles
-        best_offer = max(candidates, key=lambda b: b[0]) if candidates else None
+        # Enchère maximale entre toutes les couleurs/types disponibles ; à palier égal,
+        # on préfère prolonger l'annonce du partenaire plutôt qu'un jeu "solo".
+        def _bid_key(b):
+            follows_partner = partner_bid is not None and b[1] == partner_bid[1]
+            return (b[0], 1 if follows_partner else 0)
+        best_offer = max(candidates, key=_bid_key) if candidates else None
 
         # Nos propres As/Valets sont déjà "annoncés" dès notre déclaration initiale (le
         # niveau 80/90/100 les encode) : on ne doit pas pouvoir les re-compter plus tard
