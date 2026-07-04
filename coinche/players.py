@@ -438,6 +438,26 @@ class HeuristicPlayer(Player):
             return max(pool, key=lambda c: self._rank_strength(c, trump, None))
         return min(cand, key=lambda c: self._rank_strength(c, trump, None))
 
+    def _secure_when_partner_wins(self, same, trump, lead, trick):
+        # Le pli est déjà gagné pour mon camp : je choisis laquelle de mes cartes de
+        # cette couleur jouer maintenant (sans risque), et laquelle garder en main.
+        order = TRUMP_ORDER if (trump == 'TA' or lead == trump) else NORMAL_ORDER
+        ordered = sorted(same, key=lambda c: self._rank_strength(c, trump, lead), reverse=True)
+        top = ordered[0]
+        higher_ranks = order[:order.index(top.rank)]
+        top_secured = all(
+            self._card_seen_before(top.suit, r) or any(c.suit == top.suit and c.rank == r for _, c in trick)
+            for r in higher_ranks
+        )
+        if top_secured or len(ordered) == 1:
+            # ma meilleure carte sera maitresse plus tard : je la garde
+            return ordered[-1]
+        if len(ordered) == 2:
+            # valet/roi second : je le sécurise maintenant plutôt que la petite carte
+            return ordered[0]
+        # 3 cartes ou plus : je sécurise la carte intermédiaire, je garde la meilleure en réserve
+        return ordered[1]
+
     def _follow_card(self, trick, trump, is_attacker, master_hi, master_lo):
         lead = trick[0][1].suit
         same = [c for c in self.hand if c.suit == lead]
@@ -466,6 +486,11 @@ class HeuristicPlayer(Player):
                 if seconds:
                     return seconds[0]
                 return min(winning, key=lambda c: self._rank_strength(c, trump, lead))
+            partner_idx = (self.seat + 2) % 4
+            if current_winner[0] == partner_idx and (
+                self._partner_is_absolute_master(current_winner, trump) or len(trick) == 3
+            ):
+                return self._secure_when_partner_wins(same, trump, lead, trick)
             return min(same, key=lambda c: self._rank_strength(c, trump, lead))
 
         trumps = [c for c in self.hand if c.suit == trump] if trump in SUITS else []
