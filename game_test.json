@@ -80,7 +80,7 @@
     {
       "seat": 1,
       "offer": [
-        130,
+        120,
         "T",
         false,
         false
@@ -179,7 +179,7 @@
         },
         {
           "seat": 1,
-          "card": "7P"
+          "card": "10C"
         },
         {
           "seat": 2,
@@ -225,7 +225,7 @@
         },
         {
           "seat": 1,
-          "card": "10P"
+          "card": "7P"
         }
       ],
       "winner": 2
@@ -255,7 +255,7 @@
       "plays": [
         {
           "seat": 1,
-          "card": "10C"
+          "card": "10P"
         },
         {
           "seat": 2,
@@ -274,7 +274,7 @@
     }
   ],
   "contract": {
-    "level": 130,
+    "level": 120,
     "trump": "T",
     "taker": 1,
     "capot": false

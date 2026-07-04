@@ -111,28 +111,33 @@ class HeuristicPlayer(Player):
                 return entry['offer']
         return None
 
-    def _sa_partner_known_aces(self, partner_bid):
-        # Comme pour un décrochage à la couleur : si le SA du partenaire suit
-        # immédiatement une offre adverse d'un palier inférieur, il peut lui-même être
+    def _sa_known_aces(self, bidder_seat, bid):
+        # Comme pour un décrochage à la couleur : si l'annonce SA de `bidder_seat` suit
+        # immédiatement une offre adverse d'un palier inférieur, elle peut elle-même être
         # un décrochage (donc représenter un as de moins que ce que le palier indique).
-        level = partner_bid[0]
+        # On retrouve l'enchère précise dans l'historique (pas juste l'avant-dernière),
+        # car cette fonction peut être appelée bien après coup, sur une enchère passée.
+        level = bid[0]
         aces_table = {80: 2, 90: 3, 100: 4}
         engine = getattr(self, 'engine', None)
         if engine is not None and getattr(engine, 'history', None):
             made = [(e['seat'], tuple(e['offer'])) for e in engine.history.get('auction', []) if e.get('offer') is not None]
-            if len(made) >= 2:
-                prev_seat, prev_offer = made[-2]
-                if prev_seat % 2 != self.seat % 2 and prev_offer[0] == level - 10:
-                    return aces_table.get(level - 10, 0)
+            for i, (seat, offer) in enumerate(made):
+                if seat == bidder_seat and offer == tuple(bid):
+                    if i >= 1:
+                        prev_seat, prev_offer = made[i - 1]
+                        if prev_seat % 2 != bidder_seat % 2 and prev_offer[0] == level - 10:
+                            return aces_table.get(level - 10, 0)
+                    break
         return aces_table.get(level, 0)
 
-    def _partner_sa_to_color(self, partner_bid, own_color_candidates):
+    def _partner_sa_to_color(self, partner_seat, partner_bid, own_color_candidates):
         # On peut basculer sur sa propre couleur plutôt que de simplement soutenir le
         # SA du partenaire, en s'appuyant sur les as déjà révélés par son annonce SA
         # (moins un, potentiellement à l'atout choisi) : voir heuristiques.md §1.1.
         if not own_color_candidates or 'sa_partner_credit' in self._raise_contributions:
             return None
-        known_aces = self._sa_partner_known_aces(partner_bid)
+        known_aces = self._sa_known_aces(partner_seat, partner_bid)
         credited_aces = known_aces - 1
         if credited_aces <= 0:
             return None
@@ -164,9 +169,13 @@ class HeuristicPlayer(Player):
             exter_aces = sum(1 for c in self.hand if c.rank == 'A' and c.suit != trump)
             my_last_bid = self._my_last_bid()
             if exter_aces > 0 and my_last_bid is not None and my_last_bid[1] == 'SA':
-                # Un de mes as a déjà été utilisé par mon partenaire pour basculer sur
-                # cette couleur (_partner_sa_to_color) : pas de double-comptage.
-                exter_aces -= 1
+                # Mon partenaire a basculé sur cette couleur (_partner_sa_to_color) en se
+                # basant sur mon SA : il a déjà crédité (as supposés - 1) de mes as. Je ne
+                # dois ajouter que ceux qui restent, pas recompter mes as moins un.
+                seat = getattr(self, 'seat', None)
+                assumed = self._sa_known_aces(seat, my_last_bid)
+                already_credited = max(0, assumed - 1)
+                exter_aces = max(0, exter_aces - already_credited)
             if exter_aces > 0:
                 new_level += 10 * exter_aces
                 contrib.add('color_exter')
@@ -270,7 +279,7 @@ class HeuristicPlayer(Player):
                 if r is not None:
                     candidates.append(r)
                 own_color_candidates = [c for c in candidates if c[1] in SUITS and c is not r]
-                r2 = self._partner_sa_to_color(partner_bid, own_color_candidates)
+                r2 = self._partner_sa_to_color(last[0], partner_bid, own_color_candidates)
                 if r2 is not None:
                     candidates.append(r2)
             elif partner_bid[1] == 'TA':
