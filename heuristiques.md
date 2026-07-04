@@ -102,3 +102,6 @@ Quand un joueur est amené à défausser :
 - si son partenaire est maitre absolu (avec une carte maitre à l'atout ou à la couleur), on défausse la carte la plus forte de la couleur choisie, qui n'est pas une carte maitre absolue.
 - sinon on défausse la pire carte de la couleur choisie.
 
+# 2.4) Indications stratégiques générales
+
+De façon générale, les joueurs doivent, pour marquer des plis et donc des points, avoir le plus de cartes maitres possibles. Pour compter des plis potentiels par exemples, et essayer de jouer au mieux, hors atout par exemple, il est donc important de compter les As, puis les 10 derrière les As, et à partir du 3e pli à une couleur, la probabilité qu'une carte quelconque devienne maitre, même un petit 7, augmente, car on peut être le dernier joueur à en avoir : c'est ce qu'on appelle avoir une longue. Lors du jeu, il convient donc, dans le cas général naif, de mettre ses as au premier tour d'une couleur, les 10 au second, et aviser ensuite avec les cartes maitres restantes de la couleur, et ce, pour chaque couleur. On procède de façon similaire avec les atouts, avec le valet et le 9, et c'est pour ça qu'on joue le valet au premier tour, et le 9 au second, quand deux partenaires ont ensemble le valet et le 9. 

@@ -278,7 +278,7 @@ class HeuristicPlayer(Player):
                 r = self._partner_sa_remonte(partner_bid)
                 if r is not None:
                     candidates.append(r)
-                own_color_candidates = [c for c in candidates if c[1] in SUITS and c is not r]
+                own_color_candidates = [c for c in candidates if c[1] in SUITS]
                 r2 = self._partner_sa_to_color(last[0], partner_bid, own_color_candidates)
                 if r2 is not None:
                     candidates.append(r2)
@@ -346,38 +346,31 @@ class HeuristicPlayer(Player):
         # Sous TA, toutes les couleurs se comptent comme à l'atout : Valet puis 9.
         return ('J', '9') if trump == 'TA' else ('A', '10')
 
-    def _card_seen_before(self, suit: str, rank: str) -> bool:
+    def _weakest(self, cards, trump: str, lead: Optional[str] = None) -> Card:
+        return min(cards, key=lambda c: self._rank_strength(c, trump, lead))
+
+    def _strongest(self, cards, trump: str, lead: Optional[str] = None) -> Card:
+        return max(cards, key=lambda c: self._rank_strength(c, trump, lead))
+
+    def _played_cards(self):
+        """Cartes déjà jouées dans les plis complets de la donne en cours."""
         engine = getattr(self, 'engine', None)
         if engine is None or not getattr(engine, 'history', None):
-            return False
-        target = f"{rank}{suit}"
-        for t in engine.history.get('tricks', []):
-            for p in t['plays']:
-                if p['card'] == target:
-                    return True
-        return False
+            return []
+        return [p['card'] for t in engine.history.get('tricks', []) for p in t['plays']]
+
+    def _card_seen_before(self, suit: str, rank: str) -> bool:
+        return f"{rank}{suit}" in self._played_cards()
 
     def _trumps_remain_with_opponents(self, trump: str) -> bool:
-        engine = getattr(self, 'engine', None)
         seen = sum(1 for c in self.hand if c.suit == trump)
-        if engine is not None and getattr(engine, 'history', None):
-            for t in engine.history.get('tricks', []):
-                for p in t['plays']:
-                    if p['card'][-1] == trump:
-                        seen += 1
+        seen += sum(1 for card in self._played_cards() if card[-1] == trump)
         return seen < 8
 
     def _trump_already_led(self, trump: str) -> bool:
         # La retenue du "9 second" ne vaut que pour le tout premier tour d'atout :
         # au tour suivant, la consigne s'inverse (on joue le 9 si on l'a).
-        engine = getattr(self, 'engine', None)
-        if engine is None or not getattr(engine, 'history', None):
-            return False
-        for t in engine.history.get('tricks', []):
-            for p in t['plays']:
-                if p['card'][-1] == trump:
-                    return True
-        return False
+        return any(card[-1] == trump for card in self._played_cards())
 
     def _is_confirmed_master(self, card: Card, trump: str) -> bool:
         # Vraie même si ce n'est ni l'as ni le 10 : toutes les cartes qui la
@@ -400,7 +393,7 @@ class HeuristicPlayer(Player):
     def _lead_offsuit_master(self, trump, master_hi, master_lo):
         offsuit = [c for c in self.hand if c.suit != trump]
         if not offsuit:
-            return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+            return self._weakest(self.hand, trump)
         masters = [c for c in offsuit if c.rank == master_hi]
         if masters:
             return masters[0]
@@ -409,10 +402,10 @@ class HeuristicPlayer(Player):
             return seconds[0]
         confirmed = [c for c in offsuit if self._is_confirmed_master(c, trump)]
         if confirmed:
-            return max(confirmed, key=lambda c: self._rank_strength(c, trump, None))
+            return self._strongest(confirmed, trump)
         suit = self._choose_attack_suit(trump)
         pool = [c for c in offsuit if c.suit == suit] if suit else offsuit
-        return min(pool, key=lambda c: self._rank_strength(c, trump, None))
+        return self._weakest(pool, trump)
 
     def _lead_taker_trump(self, trump, master_hi, master_lo):
         if has_rank(self.hand, trump, 'J'):
@@ -428,11 +421,11 @@ class HeuristicPlayer(Player):
             # (notre plus gros atout, faute de valet) pour le tour suivant.
             if (not self._trump_already_led(trump)) and has_rank(self.hand, trump, '9') and len(trumps) > 1:
                 others = [c for c in trumps if c.rank != '9']
-                return min(others, key=lambda c: self._rank_strength(c, trump, None))
+                return self._weakest(others, trump)
             if has_rank(self.hand, trump, '9'):
                 return next(c for c in trumps if c.rank == '9')
             if self._trumps_remain_with_opponents(trump):
-                return min(trumps, key=lambda c: self._rank_strength(c, trump, None))
+                return self._weakest(trumps, trump)
         return self._lead_offsuit_master(trump, master_hi, master_lo)
 
     def _lead_partner_trump(self, trump, master_hi, master_lo):
@@ -442,11 +435,11 @@ class HeuristicPlayer(Player):
                 # même raison que côté attaquant principal : ne pas gâcher le dernier
                 # atout quand on sait qu'on est seul à en tenir encore.
                 return self._lead_offsuit_master(trump, master_hi, master_lo)
-            best = max(trumps, key=lambda c: self._rank_strength(c, trump, None))
+            best = self._strongest(trumps, trump)
             if best.rank == '9' and len(trumps) > 1 and not self._trump_already_led(trump):
                 # même logique que le tour du valet : on garde le 9 pour le tour suivant
                 others = [c for c in trumps if c.rank != '9']
-                return min(others, key=lambda c: self._rank_strength(c, trump, None))
+                return self._weakest(others, trump)
             return best
         return self._lead_offsuit_master(trump, master_hi, master_lo)
 
@@ -457,7 +450,7 @@ class HeuristicPlayer(Player):
         singletons = [s for s in SUITS if s != trump and count_suit(self.hand, s) == 1]
         if singletons:
             return next(c for c in self.hand if c.suit == singletons[0])
-        return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+        return self._weakest(self.hand, trump)
 
     def _lead_attack_sa_ta(self, trump, master_hi, master_lo):
         long_with_master, long_without_master, short_suits = [], [], []
@@ -479,21 +472,21 @@ class HeuristicPlayer(Player):
             # on évite de jouer sa carte maîtresse au premier tour d'une couleur si une autre ouverture existe
             if long_without_master:
                 _, cards2 = long_without_master[0]
-                return min(cards2, key=lambda c: self._rank_strength(c, trump, None))
+                return self._weakest(cards2, trump)
             if short_suits:
                 _, cards2 = short_suits[0]
-                return max(cards2, key=lambda c: self._rank_strength(c, trump, None))
+                return self._strongest(cards2, trump)
             return next(c for c in cards if c.rank == master_hi)
 
         if long_without_master:
             s, cards = long_without_master[0]
-            return min(cards, key=lambda c: self._rank_strength(c, trump, None))
+            return self._weakest(cards, trump)
 
         if short_suits:
             s, cards = short_suits[0]
-            return max(cards, key=lambda c: self._rank_strength(c, trump, None))
+            return self._strongest(cards, trump)
 
-        return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+        return self._weakest(self.hand, trump)
 
     def _lead_card(self, trump, is_attacker, is_taker, master_hi, master_lo):
         if trump in SUITS:
@@ -541,8 +534,8 @@ class HeuristicPlayer(Player):
             master_rank = self._is_absolute_master_rank(trump)
             non_master = [c for c in cand if c.rank != master_rank]
             pool = non_master or cand
-            return max(pool, key=lambda c: self._rank_strength(c, trump, None))
-        return min(cand, key=lambda c: self._rank_strength(c, trump, None))
+            return self._strongest(pool, trump)
+        return self._weakest(cand, trump)
 
     def _secure_when_partner_wins(self, same, trump, lead, trick):
         # Le pli est déjà gagné pour mon camp : je choisis laquelle de mes cartes de
@@ -580,7 +573,7 @@ class HeuristicPlayer(Player):
                     for c in same:
                         if c.rank == rank:
                             return c
-                return min(same, key=lambda c: self._rank_strength(c, trump, lead))
+                return self._weakest(same, trump, lead)
             winning = [c for c in same if self._rank_strength(c, trump, lead) > self._rank_strength(current_winner[1], trump, lead)]
             if winning:
                 # Priorité à la carte maitre (l'As, ou le 10 si l'as est déjà passé) pour
@@ -591,32 +584,32 @@ class HeuristicPlayer(Player):
                 seconds = [c for c in winning if c.rank == master_lo and self._card_seen_before(lead, master_hi)]
                 if seconds:
                     return seconds[0]
-                return min(winning, key=lambda c: self._rank_strength(c, trump, lead))
+                return self._weakest(winning, trump, lead)
             partner_idx = (self.seat + 2) % 4
             if current_winner[0] == partner_idx and (
                 self._partner_is_absolute_master(current_winner, trump) or len(trick) == 3
             ):
                 return self._secure_when_partner_wins(same, trump, lead, trick)
-            return min(same, key=lambda c: self._rank_strength(c, trump, lead))
+            return self._weakest(same, trump, lead)
 
         trumps = [c for c in self.hand if c.suit == trump] if trump in SUITS else []
         if trumps:
             partner_idx = (self.seat + 2) % 4
             if current_winner[0] == partner_idx:
-                return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+                return self._weakest(self.hand, trump)
             higher_trumps = [c for c in trumps if self._rank_strength(c, trump, lead) >
                               self._rank_strength(current_winner[1], trump, lead)]
             if higher_trumps:
                 if is_attacker:
                     # attaque : économie, la plus petite carte qui gagne
-                    return min(higher_trumps, key=lambda c: self._rank_strength(c, trump, None))
+                    return self._weakest(higher_trumps, trump)
                 # défense : coupe avec le plus gros atout, sauf 9 troisième ou As quatrième
                 nine_third = has_rank(self.hand, trump, '9') and len(trumps) == 3
                 as_fourth = has_rank(self.hand, trump, 'A') and len(trumps) == 4
                 if nine_third or as_fourth:
-                    return min(higher_trumps, key=lambda c: self._rank_strength(c, trump, None))
-                return max(higher_trumps, key=lambda c: self._rank_strength(c, trump, None))
-            return min(self.hand, key=lambda c: self._rank_strength(c, trump, None))
+                    return self._weakest(higher_trumps, trump)
+                return self._strongest(higher_trumps, trump)
+            return self._weakest(self.hand, trump)
 
         return self._discard(trump, current_winner)
 
