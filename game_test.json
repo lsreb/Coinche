@@ -146,40 +146,19 @@
       "plays": [
         {
           "seat": 3,
-          "card": "7C"
+          "card": "QK"
         },
         {
           "seat": 0,
-          "card": "KC"
+          "card": "7K"
         },
         {
           "seat": 1,
-          "card": "QC"
+          "card": "AK"
         },
-        {
-          "seat": 2,
-          "card": "AC"
-        }
-      ],
-      "winner": 2
-    },
-    {
-      "plays": [
         {
           "seat": 2,
           "card": "7P"
-        },
-        {
-          "seat": 3,
-          "card": "JP"
-        },
-        {
-          "seat": 0,
-          "card": "KP"
-        },
-        {
-          "seat": 1,
-          "card": "AP"
         }
       ],
       "winner": 1
@@ -188,7 +167,7 @@
       "plays": [
         {
           "seat": 1,
-          "card": "AK"
+          "card": "AP"
         },
         {
           "seat": 2,
@@ -196,11 +175,11 @@
         },
         {
           "seat": 3,
-          "card": "QK"
+          "card": "JP"
         },
         {
           "seat": 0,
-          "card": "7K"
+          "card": "8P"
         }
       ],
       "winner": 1
@@ -217,11 +196,11 @@
         },
         {
           "seat": 3,
-          "card": "KK"
+          "card": "7C"
         },
         {
           "seat": 0,
-          "card": "8P"
+          "card": "KP"
         }
       ],
       "winner": 1
@@ -238,11 +217,11 @@
         },
         {
           "seat": 3,
-          "card": "10K"
+          "card": "KK"
         },
         {
           "seat": 0,
-          "card": "8K"
+          "card": "KC"
         }
       ],
       "winner": 1
@@ -251,11 +230,11 @@
       "plays": [
         {
           "seat": 1,
-          "card": "JK"
+          "card": "QC"
         },
         {
           "seat": 2,
-          "card": "10C"
+          "card": "AC"
         },
         {
           "seat": 3,
@@ -263,7 +242,28 @@
         },
         {
           "seat": 0,
+          "card": "8K"
+        }
+      ],
+      "winner": 3
+    },
+    {
+      "plays": [
+        {
+          "seat": 3,
+          "card": "10K"
+        },
+        {
+          "seat": 0,
           "card": "9K"
+        },
+        {
+          "seat": 1,
+          "card": "JK"
+        },
+        {
+          "seat": 2,
+          "card": "10C"
         }
       ],
       "winner": 3

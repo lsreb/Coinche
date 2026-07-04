@@ -324,6 +324,17 @@ class HeuristicPlayer(Player):
         higher_ranks = order[:order.index(card.rank)]
         return all(self._card_seen_before(card.suit, r) for r in higher_ranks)
 
+    def _choose_attack_suit(self, trump):
+        # L'attaque veut ouvrir dans la couleur où elle avait initialement le plus
+        # de cartes (heuristiques.md §2.1.1.2), pas juste jouer la carte la plus
+        # faible toutes couleurs confondues.
+        initial = getattr(self, 'initial_hand', self.hand)
+        lengths = {s: sum(1 for c in initial if c.suit == s) for s in SUITS if s != trump}
+        available = [s for s in lengths if count_suit(self.hand, s) > 0]
+        if not available:
+            return None
+        return max(available, key=lambda s: lengths[s])
+
     def _lead_offsuit_master(self, trump, master_hi, master_lo):
         offsuit = [c for c in self.hand if c.suit != trump]
         if not offsuit:
@@ -337,7 +348,9 @@ class HeuristicPlayer(Player):
         confirmed = [c for c in offsuit if self._is_confirmed_master(c, trump)]
         if confirmed:
             return max(confirmed, key=lambda c: self._rank_strength(c, trump, None))
-        return min(offsuit, key=lambda c: self._rank_strength(c, trump, None))
+        suit = self._choose_attack_suit(trump)
+        pool = [c for c in offsuit if c.suit == suit] if suit else offsuit
+        return min(pool, key=lambda c: self._rank_strength(c, trump, None))
 
     def _lead_taker_trump(self, trump, master_hi, master_lo):
         if has_rank(self.hand, trump, 'J'):
