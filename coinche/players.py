@@ -100,6 +100,46 @@ class HeuristicPlayer(Player):
         # l'adversaire a dit 100, mais une main à 80 ne peut pas sauter jusqu'à 110.
         return own_level >= opp_level - 10
 
+    def _my_last_bid(self):
+        """Retourne ma propre dernière offre faite dans l'enchère en cours (ou None)."""
+        engine = getattr(self, 'engine', None)
+        seat = getattr(self, 'seat', None)
+        if engine is None or not getattr(engine, 'history', None):
+            return None
+        for entry in reversed(engine.history.get('auction', [])):
+            if entry['seat'] == seat and entry.get('offer') is not None:
+                return entry['offer']
+        return None
+
+    def _sa_partner_known_aces(self, partner_bid):
+        # Comme pour un décrochage à la couleur : si le SA du partenaire suit
+        # immédiatement une offre adverse d'un palier inférieur, il peut lui-même être
+        # un décrochage (donc représenter un as de moins que ce que le palier indique).
+        level = partner_bid[0]
+        aces_table = {80: 2, 90: 3, 100: 4}
+        engine = getattr(self, 'engine', None)
+        if engine is not None and getattr(engine, 'history', None):
+            made = [(e['seat'], tuple(e['offer'])) for e in engine.history.get('auction', []) if e.get('offer') is not None]
+            if len(made) >= 2:
+                prev_seat, prev_offer = made[-2]
+                if prev_seat % 2 != self.seat % 2 and prev_offer[0] == level - 10:
+                    return aces_table.get(level - 10, 0)
+        return aces_table.get(level, 0)
+
+    def _partner_sa_to_color(self, partner_bid, own_color_candidates):
+        # On peut basculer sur sa propre couleur plutôt que de simplement soutenir le
+        # SA du partenaire, en s'appuyant sur les as déjà révélés par son annonce SA
+        # (moins un, potentiellement à l'atout choisi) : voir heuristiques.md §1.1.
+        if not own_color_candidates or 'sa_partner_credit' in self._raise_contributions:
+            return None
+        known_aces = self._sa_partner_known_aces(partner_bid)
+        credited_aces = known_aces - 1
+        if credited_aces <= 0:
+            return None
+        level, trump = max(own_color_candidates, key=lambda c: c[0])[:2]
+        self._raise_contributions.add('sa_partner_credit')
+        return (level + 10 * credited_aces, trump, False, False)
+
     def _partner_color_remonte(self, partner_bid):
         # Chaque type d'information (soutien d'atout, as exter) n'est révélé qu'une
         # fois par donne : deux partenaires ne doivent pas se relancer indéfiniment
@@ -122,6 +162,11 @@ class HeuristicPlayer(Player):
         jack_nine_known = level >= 90 or has_9_second or gave_support
         if jack_nine_known and my_trumps >= 1 and 'color_exter' not in contrib:
             exter_aces = sum(1 for c in self.hand if c.rank == 'A' and c.suit != trump)
+            my_last_bid = self._my_last_bid()
+            if exter_aces > 0 and my_last_bid is not None and my_last_bid[1] == 'SA':
+                # Un de mes as a déjà été utilisé par mon partenaire pour basculer sur
+                # cette couleur (_partner_sa_to_color) : pas de double-comptage.
+                exter_aces -= 1
             if exter_aces > 0:
                 new_level += 10 * exter_aces
                 contrib.add('color_exter')
@@ -222,12 +267,20 @@ class HeuristicPlayer(Player):
         if partner_bid is not None:
             if partner_bid[1] == 'SA':
                 r = self._partner_sa_remonte(partner_bid)
+                if r is not None:
+                    candidates.append(r)
+                own_color_candidates = [c for c in candidates if c[1] in SUITS and c is not r]
+                r2 = self._partner_sa_to_color(partner_bid, own_color_candidates)
+                if r2 is not None:
+                    candidates.append(r2)
             elif partner_bid[1] == 'TA':
                 r = self._partner_ta_remonte(partner_bid)
+                if r is not None:
+                    candidates.append(r)
             else:
                 r = self._partner_color_remonte(partner_bid)
-            if r is not None:
-                candidates.append(r)
+                if r is not None:
+                    candidates.append(r)
 
         # Enchère maximale entre toutes les couleurs/types disponibles
         best_offer = max(candidates, key=lambda b: b[0]) if candidates else None

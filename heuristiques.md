@@ -22,6 +22,8 @@ Si un adversaire a déjà parlé, le joueur doit "décrocher" : par exemple si l
 
 Un décrochage jusqu'à 100, quand le joueur n'a pas la certitude que son partenaire a le 9 (donc sans confirmation de soutien d'atout), n'est possible que s'il compte lui-même au moins 4 plis dans sa propre main (atouts en main, sans compter automatiquement le 9, plus les plis hors atout comme un as exter). Ce décompte inclut alors déjà l'éventuel as exter : si le partenaire remonte ensuite l'enchère, ce joueur ne doit pas re-compter cet as exter comme une remontée supplémentaire, puisqu'il l'a déjà utilisé pour justifier son décrochage à 100.
 
+Note sur l'enchère à couleur en réponse au partenaire qui a parlé à SA : on prend en compte les as du partenaire, -1 (potentiellement dans l'atout). Par exemple, si le partenaire a parlé à 90 SA et que l'adversaire avait dit 80 couleur, alors on comprend que le partenaire a deux as. On prend en compte un de ces as dans l'annonce à la couleur. Quand le partenaire remonte, il sait qu'un de ces as est déjà pris en compte, et potentiellement devra remonter le second s'il est hors atout, ou d'autres plis qu'il peut avoir.
+
 # 1.2) Enchères SA
 
 Un joueur peut parler à 80-SA avec 2 As et un 10 second en plus. Il peut parler à 90-SA s'il possède 3 As, et 100 SA s'il possède tous les As. 
