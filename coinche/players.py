@@ -246,8 +246,21 @@ class HeuristicPlayer(Player):
             opp_level = opponent_bid[0]
             if opp_level <= 100 and best_offer[0] <= opp_level:
                 next_level = opp_level + 10
-                if next_level <= 110 and self._decrochage_ok(best_offer[0], opp_level):
-                    best_offer = (next_level, best_offer[1], best_offer[2], best_offer[3])
+                trump = best_offer[1]
+                can_decrochage = next_level <= 110 and self._decrochage_ok(best_offer[0], opp_level)
+                if can_decrochage and next_level >= 100 and trump in SUITS:
+                    # Sans certitude que le partenaire ait le 9, un décrochage jusqu'à 100
+                    # n'est crédible que si on compte au moins 4 plis dans sa propre main
+                    # (l'as/dix exter éventuel est déjà inclus dans ce décompte).
+                    can_decrochage = self._count_tricks(trump) >= 4
+                if can_decrochage:
+                    best_offer = (next_level, trump, best_offer[2], best_offer[3])
+                    if next_level >= 100 and trump in SUITS:
+                        # Le soutien d'atout et l'as exter éventuel ont déjà servi à
+                        # justifier ce décrochage : on ne doit pas pouvoir les re-annoncer
+                        # comme une remontée supplémentaire quand le partenaire relance.
+                        self._raise_contributions.add('color_support')
+                        self._raise_contributions.add('color_exter')
 
         return best_offer
 
@@ -444,6 +457,14 @@ class HeuristicPlayer(Player):
                 return min(same, key=lambda c: self._rank_strength(c, trump, lead))
             winning = [c for c in same if self._rank_strength(c, trump, lead) > self._rank_strength(current_winner[1], trump, lead)]
             if winning:
+                # Priorité à la carte maitre (l'As, ou le 10 si l'as est déjà passé) pour
+                # devenir maitre du pli, sinon la plus petite carte qui remporte le pli.
+                masters = [c for c in winning if c.rank == master_hi]
+                if masters:
+                    return masters[0]
+                seconds = [c for c in winning if c.rank == master_lo and self._card_seen_before(lead, master_hi)]
+                if seconds:
+                    return seconds[0]
                 return min(winning, key=lambda c: self._rank_strength(c, trump, lead))
             return min(same, key=lambda c: self._rank_strength(c, trump, lead))
 

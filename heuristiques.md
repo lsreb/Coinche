@@ -20,6 +20,8 @@ Si une équipe sait qu'elle a le valet et le 9, elle peut commencer à annonce l
 
 Si un adversaire a déjà parlé, le joueur doit "décrocher" : par exemple si l'adversaire a déjà parlé à 90, alors si le joueur parle à 100, cela signifie qu'il aurait voulu parler à 80 ou 90. S'il parle à 110, cela signifie qu'il voulait parler à 100 ou 110. Rien ne change pour 120 et plus dans ce cas.
 
+Un décrochage jusqu'à 100, quand le joueur n'a pas la certitude que son partenaire a le 9 (donc sans confirmation de soutien d'atout), n'est possible que s'il compte lui-même au moins 4 plis dans sa propre main (atouts en main, sans compter automatiquement le 9, plus les plis hors atout comme un as exter). Ce décompte inclut alors déjà l'éventuel as exter : si le partenaire remonte ensuite l'enchère, ce joueur ne doit pas re-compter cet as exter comme une remontée supplémentaire, puisqu'il l'a déjà utilisé pour justifier son décrochage à 100.
+
 # 1.2) Enchères SA
 
 Un joueur peut parler à 80-SA avec 2 As et un 10 second en plus. Il peut parler à 90-SA s'il possède 3 As, et 100 SA s'il possède tous les As. 
