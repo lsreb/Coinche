@@ -77,12 +77,23 @@ def running_team_scores(history, trump):
     team_points = {0: 0, 1: 0}
     running = []
     tricks = history['tricks']
+    winners = [t.get('winner') for t in tricks]
+    capot_team = None
+    if len(tricks) == 8 and all(w is not None for w in winners) and len({w % 2 for w in winners}) == 1:
+        capot_team = winners[0] % 2
     for idx, trick in enumerate(tricks, start=1):
         winner = trick.get('winner')
         cards = [p['card'] for p in trick['plays']]
         if winner is not None:
             team = winner % 2
-            team_points[team] += sum(card_point(c, trump) for c in cards)
+            is_last = idx == len(tricks)
+            if capot_team is not None and is_last:
+                # Une équipe qui fait tous les plis marque 250 (regles_coinche.md §5),
+                # pas la somme brute des points de cartes.
+                team_points = {0: 0, 1: 0}
+                team_points[capot_team] = 250
+            else:
+                team_points[team] += sum(card_point(c, trump) for c in cards)
             if belote_seat is not None and not belote_awarded:
                 for p in trick['plays']:
                     if p['seat'] == belote_seat and p['card'][-1] == trump and p['card'][:-1] in ('K', 'Q'):
@@ -90,7 +101,7 @@ def running_team_scores(history, trump):
                 if belote_played >= 2:
                     team_points[belote_seat % 2] += 20
                     belote_awarded = True
-            if idx == len(tricks) and trump != 'TA':
+            if capot_team is None and is_last and trump != 'TA':
                 team_points[team] += 10
         running.append((team_points[0], team_points[1]))
     return running

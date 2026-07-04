@@ -195,14 +195,24 @@ class GameEngine:
             leader = winner
 
         # scoring (unchanged)
-        team_points = {0:0,1:0}
+        team_tricks = {0: 0, 1: 0}
         for p, cards in tricks_won.items():
-            pts = sum(self.card_point(c, trump) for c in cards)
-            team = p%2
-            team_points[team] += pts
-        if trump != 'TA':
-            last_winner = leader
-            team_points[last_winner%2] += 10
+            team_tricks[p % 2] += len(cards) // 4
+        capot_team = 0 if team_tricks[0] == 8 else (1 if team_tricks[1] == 8 else None)
+
+        team_points = {0:0,1:0}
+        if capot_team is not None:
+            # Une équipe qui fait tous les plis marque 250, quel que soit le contrat
+            # (regles_coinche.md §5), au lieu de la somme brute des points de cartes.
+            team_points[capot_team] = 250
+        else:
+            for p, cards in tricks_won.items():
+                pts = sum(self.card_point(c, trump) for c in cards)
+                team = p%2
+                team_points[team] += pts
+            if trump != 'TA':
+                last_winner = leader
+                team_points[last_winner%2] += 10
 
         belote_bonus = {0:0,1:0}
         if trump != 'SA' and trump != 'TA':
