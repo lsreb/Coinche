@@ -773,20 +773,20 @@ class HeuristicPlayer(Player):
         self.hand.remove(choice)
         return choice
 
-class RLPlayer(Player):
+class RLPlayer(HeuristicPlayer):
+    """Enchérit exactement comme HeuristicPlayer (bid() hérité tel quel) ; seul le
+    jeu de la carte est délégué à une policy entraînable. Sans policy attachée,
+    retombe sur le jeu heuristique (repli, pas un joueur aléatoire buggé)."""
     def __init__(self, name:str, policy=None):
         super().__init__(name)
         self.policy = policy
 
-    def bid(self, current_best):
-        return None
-
     def play_card(self, seat:int, leader:int, trick:list, trump:str):
-        # expect policy to accept list of cards and return index
         if self.policy is None:
-            return RandomPlayer.play_card(self, leader, trick, trump)
-        idx = self.policy.choose_card(self.hand, leader, trick, trump)
-        card = self.hand.pop(idx)
+            return super().play_card(seat, leader, trick, trump)
+        legal = self.engine.legal_moves(seat, self.hand, trick, trump)
+        card = self.policy.choose_card(self, legal, leader, trick, trump)
+        self.hand.remove(card)
         return card
 
 

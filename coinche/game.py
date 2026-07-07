@@ -163,6 +163,53 @@ class GameEngine:
                 best = t
         return best[0]
 
+    def legal_moves(self, seat: int, hand: List[Card], trick: List[Tuple[int, Card]], trump: str) -> List[Card]:
+        """Cartes que `seat` peut légalement jouer dans `trick` en cours, régi par
+        regles_coinche.md §4. `GameEngine.play()` ne valide jamais lui-même la
+        légalité de ce que `play_card()` retourne : c'est entièrement la
+        responsabilité de l'appelant (joueur ou policy)."""
+        if not trick:
+            return list(hand)
+
+        lead_suit = trick[0][1].suit
+
+        if trump in ('SA', 'TA'):
+            same = [c for c in hand if c.suit == lead_suit]
+            return same if same else list(hand)
+
+        same = [c for c in hand if c.suit == lead_suit]
+        trumps = [c for c in hand if c.suit == trump]
+        partner_idx = (seat + 2) % 4
+
+        current_winner = trick[0]
+        for t in trick[1:]:
+            if self.card_order_key(t[1], lead_suit, trump) > self.card_order_key(current_winner[1], lead_suit, trump):
+                current_winner = t
+
+        if lead_suit == trump:
+            # Atout demandé : on doit jouer atout (en montant en force si possible),
+            # sinon défausse libre si on n'a plus d'atout.
+            if not trumps:
+                return list(hand)
+            beating = [c for c in trumps
+                       if self.card_order_key(c, lead_suit, trump) > self.card_order_key(current_winner[1], lead_suit, trump)]
+            return beating if beating else list(trumps)
+
+        if same:
+            return same
+        if not trumps:
+            return list(hand)
+        if current_winner[0] == partner_idx:
+            # Partenaire déjà maître du pli : défausse libre (la coupe reste un choix possible).
+            return list(hand)
+        if current_winner[1].suit == trump:
+            # Un adversaire a déjà coupé : on doit surcouper si possible, sinon défausse libre.
+            beating = [c for c in trumps
+                       if self.card_order_key(c, lead_suit, trump) > self.card_order_key(current_winner[1], lead_suit, trump)]
+            return beating if beating else list(hand)
+        # Personne n'a encore coupé : on doit couper (n'importe quel atout).
+        return list(trumps)
+
     def card_point(self, card:Card, trump:str):
         if trump == 'TA' or card.suit == trump:
             return TRUMP_POINTS.get(card.rank, 0)
