@@ -62,7 +62,7 @@ En priorité, l'attaque veut ouvrir un pli dans ses couleurs où initialement il
 # 2.1.2) Jeu d'attaque à SA
 
 Ordre de priorité d'ouverture de couleur : 
--couleur longue sans as, avec un 10 (3 cartes ou plus): on garde le 10 et on joue sa seconde meilleure carte (pas la pire)
+-couleur longue sans as, avec un 10 (3 cartes ou plus): on joue la plus petite carte, sauf s'il a des cartes adjacentes au 10 (par exemple, 10-roi-dame-7), dans ce cas, il faut jouer la pire carte adjacente, donc la dame.
 -couleur longue (3 cartes ou plus) avec as : on ouvre de l'as, et plus tard de la pire carte sauf si on est encore maitre (si on peut jouer la meilleure carte restante)
 
 -couleur sans as : on joue la carte la plus forte

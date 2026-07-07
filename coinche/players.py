@@ -419,9 +419,21 @@ class HeuristicPlayer(Player):
     def _strongest(self, cards, trump: str, lead: Optional[str] = None) -> Card:
         return max(cards, key=lambda c: self._rank_strength(c, trump, lead))
 
-    def _second_strongest(self, cards, trump: str, lead: Optional[str] = None) -> Card:
-        ordered = sorted(cards, key=lambda c: self._rank_strength(c, trump, lead), reverse=True)
-        return ordered[1]
+    def _long_suit_lead(self, cards, trump: str, master_lo: str) -> Card:
+        # Couleur longue sans as/valet, avec le 10/9 (heuristiques.md §2.1.2/§2.1.3) :
+        # on garde le 10/9 et on joue la pire carte de la serie contigue qui le suit
+        # immediatement dans l'ordre (ex: 10-Roi-Dame-7 -> Dame, on garde le 10 et le
+        # 7). S'il n'y a aucune carte contigue, on retombe sur la plus petite carte.
+        order = TRUMP_ORDER if trump == 'TA' else NORMAL_ORDER
+        ranks_held = {c.rank for c in cards}
+        idx = order.index(master_lo) + 1
+        worst_adjacent_rank = None
+        while idx < len(order) and order[idx] in ranks_held:
+            worst_adjacent_rank = order[idx]
+            idx += 1
+        if worst_adjacent_rank is not None:
+            return next(c for c in cards if c.rank == worst_adjacent_rank)
+        return self._weakest(cards, trump)
 
     def _played_cards(self):
         """Cartes déjà jouées dans les plis complets de la donne en cours."""
@@ -605,7 +617,7 @@ class HeuristicPlayer(Player):
             # on évite de jouer sa carte maîtresse au premier tour d'une couleur si une autre ouverture existe
             if long_without_master:
                 _, cards2 = long_without_master[0]
-                return self._second_strongest(cards2, trump)
+                return self._long_suit_lead(cards2, trump, master_lo)
             if short_suits:
                 _, cards2 = short_suits[0]
                 return self._strongest(cards2, trump)
@@ -613,7 +625,7 @@ class HeuristicPlayer(Player):
 
         if long_without_master:
             s, cards = long_without_master[0]
-            return self._second_strongest(cards, trump)
+            return self._long_suit_lead(cards, trump, master_lo)
 
         if short_suits:
             s, cards = short_suits[0]
