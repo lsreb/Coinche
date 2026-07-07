@@ -75,22 +75,25 @@ class HeuristicPlayer(Player):
                 return entry['seat'], entry['offer']
         return None
 
-    def _count_tricks(self, trump_suit: str) -> int:
-        # 1 pli par atout, puis en dehors des atouts : 1/As, 1/10 troisième,
-        # 2 pour 10+K troisième, 2 pour As+10 même couleur.
-        tricks = count_suit(self.hand, trump_suit)
+    def _count_tricks(self, trump_suit: Optional[str], hi: str = 'A', lo: str = '10', third: str = 'K') -> int:
+        # 1 pli par atout (si trump_suit fourni), puis dans chaque couleur : 1/maitre
+        # (hi), 1/second (lo) troisieme, 2 pour lo+third troisieme, 2 pour hi+lo
+        # meme couleur. A SA (pas d'atout, hi='A'/lo='10'/third='K') et a TA (toutes
+        # les couleurs comptent, hi='J'/lo='9'/third='A') on appelle avec
+        # trump_suit=None : aucune couleur n'est alors exclue de la boucle.
+        tricks = count_suit(self.hand, trump_suit) if trump_suit else 0
         for s in SUITS:
             if s == trump_suit:
                 continue
             cards = [c for c in self.hand if c.suit == s]
             ranks = {c.rank for c in cards}
-            if 'A' in ranks and '10' in ranks:
+            if hi in ranks and lo in ranks:
                 tricks += 2
-            elif '10' in ranks and 'K' in ranks and len(cards) >= 3:
+            elif lo in ranks and third in ranks and len(cards) >= 3:
                 tricks += 2
-            elif 'A' in ranks:
+            elif hi in ranks:
                 tricks += 1
-            elif '10' in ranks and len(cards) >= 3:
+            elif lo in ranks and len(cards) >= 3:
                 tricks += 1
         return tricks
 
@@ -236,7 +239,13 @@ class HeuristicPlayer(Player):
             new_level += 10 * my_aces
             contrib.add('sa_aces')
         combined_aces = self._combined_count(partner_bid, 'SA', my_aces)
-        if combined_aces >= 4 and 'sa_tens' not in contrib:
+        # Comme a la couleur, avoir tous les as ne suffit pas a annoncer les 10 non-secs
+        # par-dessus : il faut au moins 4 plis reellement comptes dans sa propre main
+        # (meme methode que le decrochage couleur), sans quoi on ne fait qu'empiler des
+        # bonus sans rapport avec les plis reels. Et un partenaire qui n'a lui-meme
+        # aucun as ne remonte pas du tout, meme pour ce bonus : ce n'est pas a lui de
+        # parler des as des autres.
+        if my_aces > 0 and combined_aces >= 4 and 'sa_tens' not in contrib and self._count_tricks(None) >= 4:
             non_sec_tens = sum(1 for s in SUITS if has_rank(self.hand, s, '10') and count_suit(self.hand, s) >= 2)
             if non_sec_tens > 0:
                 new_level += 10 * non_sec_tens
@@ -252,7 +261,10 @@ class HeuristicPlayer(Player):
             new_level += 10 * my_jacks
             contrib.add('ta_jacks')
         combined_jacks = self._combined_count(partner_bid, 'TA', my_jacks)
-        if combined_jacks >= 4 and 'ta_nines' not in contrib:
+        # Meme garde-fou qu'a SA : tous les valets reunis ne suffit pas, il faut aussi
+        # au moins 4 plis reellement comptes (valet/9/as a la place de as/10/roi), et
+        # un partenaire sans valet lui-meme ne remonte pas du tout.
+        if my_jacks > 0 and combined_jacks >= 4 and 'ta_nines' not in contrib and self._count_tricks(None, hi='J', lo='9', third='A') >= 4:
             non_sec_nines = sum(1 for s in SUITS if has_rank(self.hand, s, '9') and count_suit(self.hand, s) >= 2)
             if non_sec_nines > 0:
                 new_level += 10 * non_sec_nines
@@ -406,6 +418,10 @@ class HeuristicPlayer(Player):
 
     def _strongest(self, cards, trump: str, lead: Optional[str] = None) -> Card:
         return max(cards, key=lambda c: self._rank_strength(c, trump, lead))
+
+    def _second_strongest(self, cards, trump: str, lead: Optional[str] = None) -> Card:
+        ordered = sorted(cards, key=lambda c: self._rank_strength(c, trump, lead), reverse=True)
+        return ordered[1]
 
     def _played_cards(self):
         """Cartes déjà jouées dans les plis complets de la donne en cours."""
@@ -589,7 +605,7 @@ class HeuristicPlayer(Player):
             # on évite de jouer sa carte maîtresse au premier tour d'une couleur si une autre ouverture existe
             if long_without_master:
                 _, cards2 = long_without_master[0]
-                return self._weakest(cards2, trump)
+                return self._second_strongest(cards2, trump)
             if short_suits:
                 _, cards2 = short_suits[0]
                 return self._strongest(cards2, trump)
@@ -597,7 +613,7 @@ class HeuristicPlayer(Player):
 
         if long_without_master:
             s, cards = long_without_master[0]
-            return self._weakest(cards, trump)
+            return self._second_strongest(cards, trump)
 
         if short_suits:
             s, cards = short_suits[0]

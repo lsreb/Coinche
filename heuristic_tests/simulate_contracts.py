@@ -12,6 +12,7 @@ import csv
 import os
 import random
 import sys
+import time
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,6 +46,18 @@ def run_one_game(strategies, dealer):
     return level, contract.trump, points
 
 
+def trump_category(trump):
+    """Regroupe les contrats en 3 familles : couleur (P/C/K/T), SA, TA."""
+    return trump if trump in ('SA', 'TA') else 'Couleur'
+
+
+def split_by_category(rows):
+    cats = defaultdict(list)
+    for row in rows:
+        cats[trump_category(row[1])].append(row)
+    return cats
+
+
 def build_table(rows):
     counts = defaultdict(lambda: defaultdict(int))
     for level, _trump, points in rows:
@@ -66,7 +79,10 @@ def print_table(rows):
     for level in level_order:
         level_counts = counts[level]
         total = sum(level_counts.values())
-        made = sum(v for b, v in level_counts.items() if isinstance(level, int) and b >= level) if isinstance(level, int) else total
+        # Un capot annonce n'est reussi que si le score atteint reellement 250 (+20
+        # belote), pas par defaut : un capot chute retombe sur le score de plis normal.
+        ref = 250 if level == 'capot' else level
+        made = sum(v for b, v in level_counts.items() if b >= ref)
         row = [str(level)] + [str(level_counts.get(b, 0)) for b in buckets] + [f'{total} ({100*made//total}% reussi)' if total else '0']
         print(' | '.join(f'{c:>{col_w}}' for c in row))
 
@@ -85,8 +101,11 @@ def main():
 
     strategies = args.strategies.split(',')
     rows = []
+    start = time.perf_counter()
     for i in range(args.games):
         rows.append(run_one_game(strategies, dealer=i % 4))
+    elapsed = time.perf_counter() - start
+    print(f'{len(rows)} donnes simulees en {elapsed:.2f}s ({1000 * elapsed / len(rows):.1f} ms/donne)')
 
     if args.csv:
         with open(args.csv, 'w', newline='') as f:
@@ -95,7 +114,13 @@ def main():
             w.writerows(rows)
         print(f'Detail brut ({len(rows)} donnes) sauvegarde dans {args.csv}')
 
-    print_table(rows)
+    cats = split_by_category(rows)
+    for cat_name in ('Couleur', 'SA', 'TA'):
+        cat_rows = cats.get(cat_name, [])
+        if not cat_rows:
+            continue
+        print(f'\n=== {cat_name} ({len(cat_rows)} donnes) ===')
+        print_table(cat_rows)
 
 
 if __name__ == '__main__':

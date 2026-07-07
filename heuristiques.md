@@ -28,11 +28,14 @@ Note sur l'enchère à couleur en réponse au partenaire qui a parlé à SA : on
 
 Un joueur peut parler à 80-SA avec 2 As et un 10 second en plus. Il peut parler à 90-SA s'il possède 3 As, et 100 SA s'il possède tous les As. 
 Son partenaire remonte de 10 par As. 
+Un partenaire ne remonte pas du tout s'il n'a lui-même aucun As — y compris pour le bonus des 10 non-secs ci-dessous : ce n'est pas à lui d'annoncer les As des autres.
 Si une équipe a tous les As, elle rajoute 10 points par 10 qui n'est pas "sec" (donc isolé à la couleur dans une main), donc par 10 au moins second.
+
+Comme à la couleur, on tolère de "légèrement mentir" pour annoncer le 4e As (donc jusqu'à 110 si besoin, par décrochage). Mais pour rajouter par-dessus les points de 10 non-secs, il faut en plus compter au moins 4 plis réellement dans sa propre main (même méthode de comptage qu'à la couleur : 1 pli par As, 1 pli par 10 troisième, 2 plis pour 10+Roi troisième, 2 plis pour As+10 même couleur — sans compter d'atout puisqu'il n'y en a pas). Sans ce minimum de 4 plis, on ne rajoute pas les points de 10 non-secs, même si l'équipe a bien les 4 As.
 
 # 1.3) Enchères TA
 
-Les enchères TA suivent le même principe que SA, en considérant les Valets plutôt que les As et les 9 plutôt que les 10.
+Les enchères TA suivent le même principe que SA, en considérant les Valets plutôt que les As et les 9 plutôt que les 10 — y compris pour le garde-fou des 4 plis avant d'ajouter les points de 9 non-secs, en considérant alors le Valet à la place de l'As, le 9 à la place du 10, et l'As à la place du Roi.
 
 # 2) Jeu naïf
 
@@ -59,8 +62,9 @@ En priorité, l'attaque veut ouvrir un pli dans ses couleurs où initialement il
 # 2.1.2) Jeu d'attaque à SA
 
 Ordre de priorité d'ouverture de couleur : 
+-couleur longue sans as, avec un 10 (3 cartes ou plus): on garde le 10 et on joue sa seconde meilleure carte (pas la pire)
 -couleur longue (3 cartes ou plus) avec as : on ouvre de l'as, et plus tard de la pire carte sauf si on est encore maitre (si on peut jouer la meilleure carte restante)
--couleur longue sans as, avec un 10 (3 cartes ou plus): on joue la plus petite carte
+
 -couleur sans as : on joue la carte la plus forte
 
 Style de jeu : sauf pour récupérer un 10 adverse, on évite de jouer son as au premier tour d'une couleur, sauf si le partenaire a fait sa première ouverture (première fois qu'il fait une entame) dans cette couleur, dans ce cas on met l'as et on rejoue la même couleur. On essaie sinon en général de récupérer la maitrise des plis sans investir d'as au premier tour d'une couleur.
