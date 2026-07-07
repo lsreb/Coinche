@@ -162,7 +162,7 @@
         },
         {
           "seat": 1,
-          "card": "7P"
+          "card": "AK"
         },
         {
           "seat": 2,
@@ -191,7 +191,7 @@
         },
         {
           "seat": 1,
-          "card": "8P"
+          "card": "7P"
         }
       ],
       "winner": 2
@@ -204,7 +204,7 @@
         },
         {
           "seat": 3,
-          "card": "AC"
+          "card": "10K"
         },
         {
           "seat": 0,
@@ -212,7 +212,7 @@
         },
         {
           "seat": 1,
-          "card": "KP"
+          "card": "8P"
         }
       ],
       "winner": 2
@@ -225,7 +225,7 @@
         },
         {
           "seat": 3,
-          "card": "10K"
+          "card": "JK"
         },
         {
           "seat": 0,
@@ -233,7 +233,7 @@
         },
         {
           "seat": 1,
-          "card": "AP"
+          "card": "KP"
         }
       ],
       "winner": 2
@@ -246,7 +246,7 @@
         },
         {
           "seat": 3,
-          "card": "JK"
+          "card": "AC"
         },
         {
           "seat": 0,
@@ -254,10 +254,10 @@
         },
         {
           "seat": 1,
-          "card": "AK"
+          "card": "AP"
         }
       ],
-      "winner": 3
+      "winner": 2
     }
   ],
   "contract": {

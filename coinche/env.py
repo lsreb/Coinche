@@ -30,4 +30,8 @@ class CoincheEnv:
         agent_team = self.agent_seat % 2
         reward = team_points[agent_team]
         done = True
-        return self._get_obs(), reward, done, {"contract": contract, "history": self.engine.history}
+        return self._get_obs(), reward, done, {
+            "contract": contract,
+            "team_points": team_points,
+            "history": self.engine.history,
+        }

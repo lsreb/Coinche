@@ -26,16 +26,28 @@ def build_players(strategies):
     return players
 
 
+def ta_points_to_normal_scale(raw_points):
+    """A TA il y a 248 points en tout et pas de der, au lieu de 162 : la correspondance
+    120-135-150-165-180-195-210-225-240 <-> 80-90-100-110-120-130-140-150-160
+    (regles_coinche.md §5) donne 15 points TA pour 10 points normaux. Le capot (250)
+    n'est pas concerne par cette conversion."""
+    if raw_points >= 250:
+        return raw_points
+    return round(80 + (raw_points - 120) * (10 / 15))
+
+
 def run_game(strategies, hands, dealer, out_path):
     players = build_players(strategies)
     env = CoincheEnv(players=players, dealer=dealer, agent_seat=0)
     obs, info = env.reset(hands)
-    _, reward, done, info2 = env.step(0)
+    _, _, _, info2 = env.step(0)
     history = info2.get('history', info.get('history'))
+    contract = info2['contract']
+    team_points = info2['team_points']
     if out_path:
         with open(out_path, 'w') as f:
             json.dump(history, f, indent=2)
-    return reward, history
+    return contract, team_points, history
 
 
 def main():
@@ -54,8 +66,14 @@ def main():
     if args.hands_file:
         hands = load_hands(args.hands_file)
 
-    reward, history = run_game(args.strategies, hands, args.dealer, args.out)
-    print('Reward:', reward)
+    contract, team_points, history = run_game(args.strategies, hands, args.dealer, args.out)
+    taker_team = history['contract']['taker'] % 2
+    level = 'capot' if contract.capot else contract.level
+    points = team_points[taker_team]
+    if contract.trump == 'TA':
+        points = ta_points_to_normal_scale(points)
+    print(f"Contrat demande: {level}{contract.trump} (preneur: seat {history['contract']['taker']})")
+    print('Points marques par l\'equipe preneuse:', points)
     print('history saved to', args.out)
 
 

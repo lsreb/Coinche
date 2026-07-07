@@ -1,0 +1,375 @@
+<title>Calibration des enchères — 300 donnes simulées</title>
+<style>
+  :root {
+    --page: #f9f9f7;
+    --surface: #fcfcfb;
+    --surface-2: #f3f4f0;
+    --ink: #0b0b0b;
+    --ink-2: #52514e;
+    --ink-muted: #898781;
+    --line: #e1e0d9;
+    --line-strong: #c3c2b7;
+    --accent: #2a78d6;
+    --anomaly: #b4501f;
+    --anomaly-bg: #fbeee4;
+    --shadow: 0 1px 2px rgba(11,11,11,0.04), 0 8px 24px -12px rgba(11,11,11,0.18);
+    --radius: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --page: #0d0d0d;
+      --surface: #17181a;
+      --surface-2: #1e2023;
+      --ink: #f5f5f3;
+      --ink-2: #c3c2b7;
+      --ink-muted: #8f8d86;
+      --line: #2c2c2a;
+      --line-strong: #3a3a37;
+      --accent: #5ea1ee;
+      --anomaly: #f0a26e;
+      --anomaly-bg: #2c2016;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 28px -12px rgba(0,0,0,0.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #0d0d0d; --surface: #17181a; --surface-2: #1e2023; --ink: #f5f5f3;
+    --ink-2: #c3c2b7; --ink-muted: #8f8d86; --line: #2c2c2a; --line-strong: #3a3a37;
+    --accent: #5ea1ee; --anomaly: #f0a26e; --anomaly-bg: #2c2016;
+    --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 28px -12px rgba(0,0,0,0.6);
+  }
+  :root[data-theme="light"] {
+    --page: #f9f9f7; --surface: #fcfcfb; --surface-2: #f3f4f0; --ink: #0b0b0b;
+    --ink-2: #52514e; --ink-muted: #898781; --line: #e1e0d9; --line-strong: #c3c2b7;
+    --accent: #2a78d6; --anomaly: #b4501f; --anomaly-bg: #fbeee4;
+    --shadow: 0 1px 2px rgba(11,11,11,0.04), 0 8px 24px -12px rgba(11,11,11,0.18);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--page);
+    color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 56px 24px 80px;
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+  }
+  .eyebrow {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .eyebrow::before {
+    content: "\2660";
+    font-size: 14px;
+  }
+  h1 {
+    margin: 6px 0 0;
+    font-size: clamp(26px, 4vw, 34px);
+    font-weight: 800;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+    line-height: 1.15;
+  }
+  .subtitle {
+    margin: 10px 0 0;
+    max-width: 62ch;
+    color: var(--ink-2);
+    font-size: 15.5px;
+    line-height: 1.55;
+  }
+  .meta {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 18px;
+    font-size: 12.5px;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .meta code {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 6px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--ink-2);
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+  }
+  .stat-label {
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  .stat-value {
+    margin-top: 6px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--ink);
+    font-variant-numeric: tabular-nums;
+  }
+  .stat-value.accent { color: var(--accent); }
+  .stat-value.warn { color: var(--anomaly); }
+  .stat-note {
+    margin-top: 4px;
+    font-size: 12.5px;
+    color: var(--ink-2);
+  }
+
+  section.panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 24px;
+    box-shadow: var(--shadow);
+  }
+  .panel-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 18px;
+  }
+  .panel-head h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .panel-head p {
+    margin: 2px 0 0;
+    font-size: 13px;
+    color: var(--ink-muted);
+  }
+
+  .legend {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11.5px;
+    color: var(--ink-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .legend .ramp {
+    width: 96px;
+    height: 8px;
+    border-radius: 4px;
+    background: linear-gradient(to right, #e3ecf9, #0d366b);
+    border: 1px solid var(--line);
+  }
+  @media (prefers-color-scheme: dark) {
+    .legend .ramp { background: linear-gradient(to right, #242b33, #5ea1ee); }
+  }
+  :root[data-theme="dark"] .legend .ramp { background: linear-gradient(to right, #242b33, #5ea1ee); }
+  :root[data-theme="light"] .legend .ramp { background: linear-gradient(to right, #e3ecf9, #0d366b); }
+
+  .table-scroll {
+    overflow-x: auto;
+    border-radius: 10px;
+  }
+  table.heatmap {
+    border-collapse: separate;
+    border-spacing: 0;
+    width: 100%;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px;
+    font-variant-numeric: tabular-nums;
+  }
+  table.heatmap th, table.heatmap td {
+    padding: 7px 8px;
+    text-align: center;
+    white-space: nowrap;
+  }
+  table.heatmap thead th {
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--ink-muted);
+    border-bottom: 1px solid var(--line-strong);
+    padding-bottom: 10px;
+  }
+  table.heatmap thead th.corner { text-align: left; }
+  table.heatmap tbody th {
+    text-align: left;
+    font-weight: 700;
+    color: var(--ink);
+    position: sticky;
+    left: 0;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
+    padding-right: 12px;
+  }
+  table.heatmap tbody tr:not(:last-child) th,
+  table.heatmap tbody tr:not(:last-child) td {
+    border-bottom: 1px solid var(--line);
+  }
+  tr.row-anomaly th { color: var(--anomaly); }
+  tr.row-anomaly { background: var(--anomaly-bg); }
+  tr.row-anomaly th { background: var(--anomaly-bg); }
+
+  td.cell-zero { color: var(--line-strong); }
+  td.cell-zero::after { content: "\00b7"; }
+  td.cell-fill {
+    background: var(--vl);
+    color: var(--ink);
+    border-radius: 5px;
+    cursor: default;
+  }
+  @media (prefers-color-scheme: dark) { td.cell-fill { background: var(--vd); } }
+  :root[data-theme="dark"] td.cell-fill { background: var(--vd); }
+  :root[data-theme="light"] td.cell-fill { background: var(--vl); }
+  td.cell-fill.cell-hi { color: #ffffff; }
+
+  td.cell-total {
+    font-weight: 700;
+    color: var(--ink);
+    border-left: 1px solid var(--line-strong);
+  }
+  td.cell-pct {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 96px;
+  }
+  .pct-track {
+    width: 46px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    overflow: hidden;
+  }
+  .pct-fill {
+    display: block;
+    height: 100%;
+    width: var(--pct);
+    background: var(--accent);
+    border-radius: 3px;
+  }
+  .pct-txt { font-weight: 700; color: var(--ink-2); }
+
+  .callout {
+    margin-top: 18px;
+    padding: 14px 16px;
+    border-radius: 10px;
+    background: var(--anomaly-bg);
+    border: 1px solid var(--line);
+    font-size: 13px;
+    line-height: 1.55;
+    color: var(--ink-2);
+  }
+  .callout strong { color: var(--anomaly); }
+
+  footer {
+    font-size: 12px;
+    color: var(--ink-muted);
+    line-height: 1.6;
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+  }
+
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <div>
+    <div class="eyebrow">Coinche &middot; Rapport de simulation</div>
+    <h1>Calibration des ench&egrave;res, contrat par contrat</h1>
+    <p class="subtitle">
+      Sur 300 donnes jou&eacute;es en autonomie (4 joueurs heuristiques), chaque cellule montre
+      combien de fois le score final de l'&eacute;quipe preneuse est tomb&eacute; dans une tranche
+      de 10 points donn&eacute;e, pour un palier de contrat annonc&eacute; donn&eacute;.
+    </p>
+    <div class="meta">
+      <span><code>--games 300</code></span>
+      <span><code>--strategies heuristic&times;4</code></span>
+      <span><code>--seed 42</code></span>
+      <span>g&eacute;n&eacute;r&eacute; avec <code>heuristic_tests/simulate_contracts.py</code></span>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label">Contrats r&eacute;ussis</div>
+      <div class="stat-value accent">73%</div>
+      <div class="stat-note">219 / 300 donnes, tous paliers confondus</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Palier le plus fr&eacute;quent</div>
+      <div class="stat-value">110</div>
+      <div class="stat-note">112 donnes sur 300</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label">Palier le moins fiable</div>
+      <div class="stat-value warn">140</div>
+      <div class="stat-note">60% de r&eacute;ussite seulement</div>
+    </div>
+  </div>
+
+  <section class="panel">
+    <div class="panel-head">
+      <div>
+        <h2>Score obtenu par tranche de 10, selon le contrat annonc&eacute;</h2>
+        <p>Lignes&nbsp;: palier annonc&eacute;. Colonnes&nbsp;: score final obtenu (l'&eacute;chelle TA est d&eacute;j&agrave; ramen&eacute;e &agrave; l'&eacute;quivalent normal).</p>
+      </div>
+      <div class="legend">peu<span class="ramp"></span>souvent</div>
+    </div>
+    <div class="table-scroll">
+      <table class="heatmap">
+  <thead>
+    <tr><th scope="col" class="corner">Contrat</th><th scope="col">30</th><th scope="col">40</th><th scope="col">50</th><th scope="col">60</th><th scope="col">70</th><th scope="col">80</th><th scope="col">90</th><th scope="col">100</th><th scope="col">110</th><th scope="col">120</th><th scope="col">130</th><th scope="col">140</th><th scope="col">150</th><th scope="col">160</th><th scope="col">170</th><th scope="col">250</th><th scope="col">270</th><th scope="col">Total</th><th scope="col">R&eacute;ussite</th></tr>
+  </thead>
+  <tbody>
+    <tr><th scope="row">80</th><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#acbdd5;--vd:#334963" title="3 donnes">3</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#acbdd5;--vd:#334963" title="3 donnes">3</td><td class="cell cell-fill" style="--vl:#acbdd5;--vd:#334963" title="3 donnes">3</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell-total">19</td><td class="cell-pct"><span class="pct-track"><span class="pct-fill" style="--pct:79%"></span></span><span class="pct-txt">79%</span></td></tr>
+    <tr><th scope="row">90</th><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#a1b4ce;--vd:#364f6c" title="4 donnes">4</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#a1b4ce;--vd:#364f6c" title="4 donnes">4</td><td class="cell cell-fill" style="--vl:#8fa4c1;--vd:#3b597d" title="6 donnes">6</td><td class="cell cell-fill" style="--vl:#acbdd5;--vd:#334963" title="3 donnes">3</td><td class="cell cell-fill" style="--vl:#a1b4ce;--vd:#364f6c" title="4 donnes">4</td><td class="cell cell-fill" style="--vl:#a1b4ce;--vd:#364f6c" title="4 donnes">4</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell-total">33</td><td class="cell-pct"><span class="pct-track"><span class="pct-fill" style="--pct:70%"></span></span><span class="pct-txt">70%</span></td></tr>
+    <tr><th scope="row">100</th><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#acbdd5;--vd:#334963" title="3 donnes">3</td><td class="cell cell-fill" style="--vl:#8fa4c1;--vd:#3b597d" title="6 donnes">6</td><td class="cell cell-fill" style="--vl:#8fa4c1;--vd:#3b597d" title="6 donnes">6</td><td class="cell cell-fill" style="--vl:#7790b1;--vd:#416792" title="9 donnes">9</td><td class="cell cell-fill" style="--vl:#98acc7;--vd:#385475" title="5 donnes">5</td><td class="cell cell-fill" style="--vl:#7790b1;--vd:#416792" title="9 donnes">9</td><td class="cell cell-fill" style="--vl:#8fa4c1;--vd:#3b597d" title="6 donnes">6</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#a1b4ce;--vd:#364f6c" title="4 donnes">4</td><td class="cell cell-zero" aria-label="0"></td><td class="cell-total">54</td><td class="cell-pct"><span class="pct-track"><span class="pct-fill" style="--pct:69%"></span></span><span class="pct-txt">69%</span></td></tr>
+    <tr><th scope="row">110</th><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#98acc7;--vd:#385475" title="5 donnes">5</td><td class="cell cell-fill" style="--vl:#7e96b6;--vd:#3f638b" title="8 donnes">8</td><td class="cell cell-fill" style="--vl:#8fa4c1;--vd:#3b597d" title="6 donnes">6</td><td class="cell cell-fill" style="--vl:#869dbc;--vd:#3d5e84" title="7 donnes">7</td><td class="cell cell-fill cell-hi" style="--vl:#5b789f;--vd:#4976aa" title="13 donnes">13</td><td class="cell cell-fill cell-hi" style="--vl:#4e6e96;--vd:#4c7db5" title="15 donnes">15</td><td class="cell cell-fill cell-hi" style="--vl:#0d366b;--vd:#5ea1ee" title="27 donnes">27</td><td class="cell cell-fill cell-hi" style="--vl:#5b789f;--vd:#4976aa" title="13 donnes">13</td><td class="cell cell-fill" style="--vl:#98acc7;--vd:#385475" title="5 donnes">5</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#869dbc;--vd:#3d5e84" title="7 donnes">7</td><td class="cell cell-zero" aria-label="0"></td><td class="cell-total">112</td><td class="cell-pct"><span class="pct-track"><span class="pct-fill" style="--pct:72%"></span></span><span class="pct-txt">72%</span></td></tr>
+    <tr><th scope="row">120</th><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#acbdd5;--vd:#334963" title="3 donnes">3</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#98acc7;--vd:#385475" title="5 donnes">5</td><td class="cell cell-fill" style="--vl:#869dbc;--vd:#3d5e84" title="7 donnes">7</td><td class="cell cell-fill" style="--vl:#7790b1;--vd:#416792" title="9 donnes">9</td><td class="cell cell-fill" style="--vl:#869dbc;--vd:#3d5e84" title="7 donnes">7</td><td class="cell cell-fill" style="--vl:#98acc7;--vd:#385475" title="5 donnes">5</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill cell-hi" style="--vl:#6f8aac;--vd:#436b98" title="10 donnes">10</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell-total">50</td><td class="cell-pct"><span class="pct-track"><span class="pct-fill" style="--pct:80%"></span></span><span class="pct-txt">80%</span></td></tr>
+    <tr><th scope="row">130</th><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#7790b1;--vd:#416792" title="9 donnes">9</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#a1b4ce;--vd:#364f6c" title="4 donnes">4</td><td class="cell cell-zero" aria-label="0"></td><td class="cell-total">21</td><td class="cell-pct"><span class="pct-track"><span class="pct-fill" style="--pct:76%"></span></span><span class="pct-txt">76%</span></td></tr>
+    <tr class="row-anomaly"><th scope="row">140</th><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#acbdd5;--vd:#334963" title="3 donnes">3</td><td class="cell cell-fill" style="--vl:#b8c8dd;--vd:#304358" title="2 donnes">2</td><td class="cell-total">10</td><td class="cell-pct"><span class="pct-track"><span class="pct-fill" style="--pct:60%"></span></span><span class="pct-txt">60%</span></td></tr>
+    <tr><th scope="row">Capot</th><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-fill" style="--vl:#c7d4e7;--vd:#2c3a4b" title="1 donne">1</td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell cell-zero" aria-label="0"></td><td class="cell-total">1</td><td class="cell-pct"><span class="pct-track"><span class="pct-fill" style="--pct:100%"></span></span><span class="pct-txt">100%</span></td></tr>
+  </tbody>
+</table>
+    </div>
+    <div class="callout">
+      <strong>&Agrave; surveiller&nbsp;:</strong> le palier 140 ne tient sa promesse que 60% du temps,
+      nettement moins que les autres paliers &mdash; peut-&ecirc;tre un d&eacute;crochage un peu trop optimiste &agrave; ce niveau pr&eacute;cis.
+      Les colonnes 250/270 correspondent aux donnes o&ugrave; une &eacute;quipe fait tous les plis sans
+      avoir annonc&eacute; capot (250&nbsp;points de plis, +20 si belote) &mdash; comportement voulu, pas une anomalie.
+    </div>
+  </section>
+
+  <footer>
+    Score TA converti sur l'&eacute;chelle normale (120&ndash;240&nbsp;&harr;&nbsp;80&ndash;160, r&egrave;gles &sect;5) avant tabulation.
+    Capot affich&eacute; s&eacute;par&eacute;ment de son palier annonc&eacute;.
+  </footer>
+</div>
