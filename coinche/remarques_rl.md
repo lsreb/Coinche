@@ -8,3 +8,7 @@ Le réseau de neurones pourrait permettre de prendre en compte les données dont
 
 ## 3) Le renforcement
 La récompense utilisée pour le renforcement est la quantité "reward" après une partie. Etant donné le style de jeu très déterministe et réglé de la coinche, peut-être faudrait-il en fait comparer cette reward avec la reward qu'on aurait eu si on avait joué en Heuristic plutot que RL, et utiliser comme vraie récompense cette différence de reward. Ou alors ce concept est déjà plus ou moins pris en compte dans la baseline ? Ou alors ce serait une bonne façon d'initier la baseline, ou encore c'est à faire en plus de la baseline ?
+
+
+## 4) La politique initiale
+Plutôt que partir d'un choix random de cartes initialement, ce qui est le cas si j'ai bien compris, ne serait-ce pas mieux de partir d'un choix proche de l'heuristique + une randomisation autour de ça, afin d'espérer partir d'un choix plus raisonnable ?
