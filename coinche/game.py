@@ -143,8 +143,6 @@ class GameEngine:
     def card_order_key(self, card:Card, lead_suit:Optional[str], trump:str):
         if trump == 'TA' or (card.suit == trump):
             order = TRUMP_ORDER
-        elif trump == 'SA':
-            order = NORMAL_ORDER
         else:
             order = NORMAL_ORDER
         try:

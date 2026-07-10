@@ -1,74 +1,74 @@
 {
   "deal_hands": [
     [
-      "QT",
-      "10C",
-      "9C",
-      "9K",
-      "7C",
-      "JT",
-      "AT",
-      "10P"
-    ],
-    [
-      "8P",
-      "KT",
-      "7T",
-      "AP",
-      "QC",
       "AK",
-      "KP",
+      "10C",
+      "QC",
+      "10P",
+      "9T",
+      "10K",
+      "10T",
       "7P"
     ],
     [
-      "7K",
-      "10T",
-      "9T",
-      "JC",
-      "JP",
-      "8T",
+      "KP",
+      "KT",
+      "AC",
       "QK",
-      "9P"
+      "JP",
+      "7C",
+      "QP",
+      "QT"
     ],
     [
       "KK",
-      "QP",
-      "JK",
+      "AT",
+      "JC",
       "KC",
-      "AC",
+      "7T",
+      "8C",
+      "9C",
+      "9K"
+    ],
+    [
+      "8T",
+      "7K",
+      "JK",
+      "8P",
       "8K",
-      "10K",
-      "8C"
+      "9P",
+      "AP",
+      "JT"
     ]
   ],
   "auction": [
     {
       "seat": 1,
-      "offer": null
+      "offer": [
+        80,
+        "P",
+        false,
+        false
+      ]
     },
     {
       "seat": 2,
       "offer": [
-        80,
-        "TA",
+        110,
+        "C",
         false,
         false
       ]
     },
     {
       "seat": 3,
-      "offer": [
-        90,
-        "K",
-        false,
-        false
-      ]
+      "offer": null
     },
     {
       "seat": 0,
       "offer": [
-        100,
-        "TA",
+        120,
+        "C",
         false,
         false
       ]
@@ -79,7 +79,12 @@
     },
     {
       "seat": 2,
-      "offer": null
+      "offer": [
+        130,
+        "C",
+        false,
+        false
+      ]
     },
     {
       "seat": 3,
@@ -87,6 +92,14 @@
     },
     {
       "seat": 0,
+      "offer": null
+    },
+    {
+      "seat": 1,
+      "offer": null
+    },
+    {
+      "seat": 2,
       "offer": null
     }
   ],
@@ -95,7 +108,32 @@
       "plays": [
         {
           "seat": 1,
-          "card": "QC"
+          "card": "QK"
+        },
+        {
+          "seat": 2,
+          "card": "KK"
+        },
+        {
+          "seat": 3,
+          "card": "7K"
+        },
+        {
+          "seat": 0,
+          "card": "AK"
+        }
+      ],
+      "winner": 0
+    },
+    {
+      "plays": [
+        {
+          "seat": 0,
+          "card": "10C"
+        },
+        {
+          "seat": 1,
+          "card": "AC"
         },
         {
           "seat": 2,
@@ -103,10 +141,27 @@
         },
         {
           "seat": 3,
-          "card": "8C"
+          "card": "8T"
+        }
+      ],
+      "winner": 2
+    },
+    {
+      "plays": [
+        {
+          "seat": 2,
+          "card": "9C"
+        },
+        {
+          "seat": 3,
+          "card": "JT"
         },
         {
           "seat": 0,
+          "card": "QC"
+        },
+        {
+          "seat": 1,
           "card": "7C"
         }
       ],
@@ -116,82 +171,19 @@
       "plays": [
         {
           "seat": 2,
-          "card": "8T"
-        },
-        {
-          "seat": 3,
-          "card": "QP"
-        },
-        {
-          "seat": 0,
-          "card": "JT"
-        },
-        {
-          "seat": 1,
-          "card": "7T"
-        }
-      ],
-      "winner": 0
-    },
-    {
-      "plays": [
-        {
-          "seat": 0,
-          "card": "9C"
-        },
-        {
-          "seat": 1,
-          "card": "KT"
-        },
-        {
-          "seat": 2,
-          "card": "7K"
-        },
-        {
-          "seat": 3,
-          "card": "KC"
-        }
-      ],
-      "winner": 0
-    },
-    {
-      "plays": [
-        {
-          "seat": 0,
           "card": "AT"
-        },
-        {
-          "seat": 1,
-          "card": "AK"
-        },
-        {
-          "seat": 2,
-          "card": "9T"
         },
         {
           "seat": 3,
           "card": "8K"
-        }
-      ],
-      "winner": 2
-    },
-    {
-      "plays": [
-        {
-          "seat": 2,
-          "card": "10T"
-        },
-        {
-          "seat": 3,
-          "card": "KK"
         },
         {
           "seat": 0,
+          "card": "9T"
+        },
+        {
+          "seat": 1,
           "card": "QT"
-        },
-        {
-          "seat": 1,
-          "card": "7P"
         }
       ],
       "winner": 2
@@ -200,28 +192,7 @@
       "plays": [
         {
           "seat": 2,
-          "card": "JP"
-        },
-        {
-          "seat": 3,
-          "card": "10K"
-        },
-        {
-          "seat": 0,
-          "card": "10P"
-        },
-        {
-          "seat": 1,
-          "card": "8P"
-        }
-      ],
-      "winner": 2
-    },
-    {
-      "plays": [
-        {
-          "seat": 2,
-          "card": "9P"
+          "card": "9K"
         },
         {
           "seat": 3,
@@ -229,11 +200,53 @@
         },
         {
           "seat": 0,
-          "card": "9K"
+          "card": "10K"
         },
         {
           "seat": 1,
-          "card": "KP"
+          "card": "KT"
+        }
+      ],
+      "winner": 0
+    },
+    {
+      "plays": [
+        {
+          "seat": 0,
+          "card": "10T"
+        },
+        {
+          "seat": 1,
+          "card": "JP"
+        },
+        {
+          "seat": 2,
+          "card": "7T"
+        },
+        {
+          "seat": 3,
+          "card": "8P"
+        }
+      ],
+      "winner": 0
+    },
+    {
+      "plays": [
+        {
+          "seat": 0,
+          "card": "7P"
+        },
+        {
+          "seat": 1,
+          "card": "QP"
+        },
+        {
+          "seat": 2,
+          "card": "8C"
+        },
+        {
+          "seat": 3,
+          "card": "9P"
         }
       ],
       "winner": 2
@@ -242,28 +255,28 @@
       "plays": [
         {
           "seat": 2,
-          "card": "QK"
+          "card": "KC"
         },
         {
           "seat": 3,
-          "card": "AC"
+          "card": "AP"
         },
         {
           "seat": 0,
-          "card": "10C"
+          "card": "10P"
         },
         {
           "seat": 1,
-          "card": "AP"
+          "card": "KP"
         }
       ],
       "winner": 2
     }
   ],
   "contract": {
-    "level": 100,
-    "trump": "TA",
-    "taker": 0,
+    "level": 130,
+    "trump": "C",
+    "taker": 2,
     "capot": false
   }
 }
