@@ -98,12 +98,19 @@ class GameEngine:
         if level < 80 or level > 250 or level % 10 != 0:
             return False
         if current_best is None:
-            return True
+            # Coincher suppose une annonce existante a doubler (regles_coinche.md).
+            return not coinched
+        if coinched:
+            # La coinche double la derniere annonce telle quelle (meme palier/couleur/
+            # capot), elle ne surencherit pas de 10 comme une enchere normale.
+            best_level, best_trump, _, best_capot = current_best
+            return level == best_level and trump == best_trump and capot == best_capot
         return level >= current_best[0] + 10
 
     def run_auction(self):
         passes = 0
         best = None
+        coinched = False
         idx = (self.dealer + 1) % 4
         while passes < 4:
             player = self.players[idx]
@@ -115,6 +122,13 @@ class GameEngine:
                 if self.history is not None:
                     self.history['auction'].append({'seat': idx, 'offer': None})
                 passes += 1
+            elif b[2]:
+                # Coinche : fixe immediatement le contrat a la derniere annonce
+                # (regles_coinche.md), sans laisser les joueurs suivants encherir.
+                if self.history is not None:
+                    self.history['auction'].append({'seat': idx, 'offer': b})
+                coinched = True
+                break
             else:
                 if self.history is not None:
                     self.history['auction'].append({'seat': idx, 'offer': b})
@@ -128,7 +142,7 @@ class GameEngine:
             self.deal()
             self.run_auction()
         else:
-            bidder_idx, (level, trump, coinched, capot) = best
+            bidder_idx, (level, trump, _, capot) = best
             self.contract = Contract(level, trump, coinched, capot)
             self.taker_idx = bidder_idx
 
@@ -138,6 +152,7 @@ class GameEngine:
                 'trump': self.contract.trump,
                 'taker': getattr(self, 'taker_idx', None),
                 'capot': self.contract.capot,
+                'coinched': self.contract.coinched,
             }
 
     def card_order_key(self, card:Card, lead_suit:Optional[str], trump:str):
@@ -266,8 +281,34 @@ class GameEngine:
                 if (trump,'K') in initial_ranks and (trump,'Q') in initial_ranks:
                     belote_bonus[p%2] += 20
                     break
-        for team in [0,1]:
-            team_points[team] += belote_bonus[team]
+
+        # Points de plis bruts (+ der + belote), toujours calcules independamment
+        # de la coinche : c'est ce qui determine la reussite du contrat
+        # (regles_coinche.md : "avec la belote elle passe a 95 et pourrait faire
+        # son contrat a 80-C", la belote compte donc bien pour la reussite), et ce
+        # que des scripts externes (simulate_contracts.py) veulent pour calibrer
+        # les encheres independamment du forfait fixe applique en cas de coinche.
+        raw_points = {team: team_points[team] + belote_bonus[team] for team in (0, 1)}
+        if self.history is not None:
+            self.history['raw_points'] = dict(raw_points)
+
+        if self.contract.coinched:
+            # regles_coinche.md §5 : la coinche double la mise et remplace le score
+            # par un forfait fixe (160 + 2x le contrat) pour l'equipe qui gagne la
+            # donne, 0 pour l'autre -- independamment des points de plis reellement
+            # faits (seule la reussite/echec du contrat, comme sans coinche, compte).
+            # self.contract.level vaut deja 250 pour un capot (_normalize_bid).
+            taker_team = self.taker_idx % 2
+            defense_team = 1 - taker_team
+            attack_success = raw_points[taker_team] >= self.contract.level
+            winner = taker_team if attack_success else defense_team
+            loser = 1 - winner
+            team_points = {
+                winner: 160 + 2 * self.contract.level + belote_bonus[winner],
+                loser: belote_bonus[loser],
+            }
+        else:
+            team_points = raw_points
 
         return team_points, self.contract
     

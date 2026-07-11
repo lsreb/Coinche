@@ -39,11 +39,16 @@ def run_one_game(strategies, dealer):
     engine.run_auction()
     team_points, contract = engine.play()
     taker_team = engine.taker_idx % 2
-    points = team_points[taker_team]
+    # Points de plis bruts (independants de la coinche, cf. GameEngine.play) :
+    # sert au tableau de distribution, sur l'echelle habituelle (comme si le
+    # contrat n'etait pas coinche), pour la calibration des encheres.
+    raw_points = engine.history['raw_points'][taker_team]
     if contract.trump == 'TA':
-        points = ta_points_to_normal_scale(points)
+        raw_points = ta_points_to_normal_scale(raw_points)
+    # Score reellement marque (double si coinche) : sert au calcul de la moyenne.
+    real_points = team_points[taker_team]
     level = 'capot' if contract.capot else contract.level
-    return level, contract.trump, points
+    return level, contract.trump, raw_points, contract.coinched, real_points
 
 
 def trump_category(trump):
@@ -60,19 +65,24 @@ def split_by_category(rows):
 
 def build_table(rows):
     counts = defaultdict(lambda: defaultdict(int))
-    for level, _trump, points in rows:
+    coinched_count = defaultdict(int)
+    real_sum = defaultdict(float)
+    for level, _trump, points, coinched, real_points in rows:
         bucket = (points // 10) * 10
         counts[level][bucket] += 1
+        if coinched:
+            coinched_count[level] += 1
+        real_sum[level] += real_points
     buckets = sorted({b for level_counts in counts.values() for b in level_counts})
     level_order = [lvl for lvl in (80, 90, 100, 110, 120, 130, 140, 150, 160) if lvl in counts]
     if 'capot' in counts:
         level_order.append('capot')
-    return counts, buckets, level_order
+    return counts, buckets, level_order, coinched_count, real_sum
 
 
 def print_table(rows):
-    counts, buckets, level_order = build_table(rows)
-    header = ['contrat'] + [str(b) for b in buckets] + ['total']
+    counts, buckets, level_order, coinched_count, real_sum = build_table(rows)
+    header = ['contrat'] + [str(b) for b in buckets] + ['total', '% coinche', 'moyenne']
     col_w = max(6, max(len(str(b)) for b in buckets) + 1) if buckets else 6
     print(' | '.join(f'{h:>{col_w}}' for h in header))
     print('-' * (len(header) * (col_w + 3)))
@@ -83,7 +93,15 @@ def print_table(rows):
         # belote), pas par defaut : un capot chute retombe sur le score de plis normal.
         ref = 250 if level == 'capot' else level
         made = sum(v for b, v in level_counts.items() if b >= ref)
-        row = [str(level)] + [str(level_counts.get(b, 0)) for b in buckets] + [f'{total} ({100*made//total}% reussi)' if total else '0']
+        pct_coinche = 100 * coinched_count[level] / total if total else 0
+        # Moyenne sur le score reellement marque (donc double en cas de coinche),
+        # contrairement aux colonnes de distribution ci-dessus qui restent sur
+        # l'echelle brute habituelle, comme si aucune donne n'etait coinchee.
+        moyenne = real_sum[level] / total if total else 0
+        row = ([str(level)] + [str(level_counts.get(b, 0)) for b in buckets]
+               + [f'{total} ({100*made//total}% reussi)' if total else '0',
+                  f'{pct_coinche:.0f}%',
+                  f'{moyenne:.0f}'])
         print(' | '.join(f'{c:>{col_w}}' for c in row))
 
 
@@ -110,7 +128,7 @@ def main():
     if args.csv:
         with open(args.csv, 'w', newline='') as f:
             w = csv.writer(f)
-            w.writerow(['level', 'trump', 'points'])
+            w.writerow(['level', 'trump', 'raw_points', 'coinched', 'real_points'])
             w.writerows(rows)
         print(f'Detail brut ({len(rows)} donnes) sauvegarde dans {args.csv}')
 

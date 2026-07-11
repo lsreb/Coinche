@@ -128,6 +128,26 @@ class HeuristicPlayer(Player):
                 return entry['offer']
         return None
 
+    def _team_last_bidder_is_me(self) -> bool:
+        # Vrai si, entre mon partenaire et moi, je suis le dernier a avoir
+        # reellement enchéri (pas passé) dans cette enchère -- y compris si mon
+        # partenaire n'a jamais enchéri du tout. Sert à interdire le décrochage
+        # (heuristiques.md §1.1) quand mon partenaire ne m'a apporté aucune
+        # information nouvelle depuis ma propre dernière annonce.
+        engine = getattr(self, 'engine', None)
+        seat = getattr(self, 'seat', None)
+        if engine is None or not getattr(engine, 'history', None) or seat is None:
+            return False
+        partner_seat = (seat + 2) % 4
+        for entry in reversed(engine.history.get('auction', [])):
+            if entry.get('offer') is None:
+                continue
+            if entry['seat'] == seat:
+                return True
+            if entry['seat'] == partner_seat:
+                return False
+        return False
+
     def _decrochage_adjusted_level(self, bidder_seat, bid):
         # Si l'enchère `bid` de `bidder_seat` suit immédiatement une offre adverse d'un
         # palier inférieur, elle peut elle-même être un décrochage : elle représente
@@ -370,8 +390,12 @@ class HeuristicPlayer(Player):
             self._raise_contributions.add('ta_jacks')
 
         # Décrochage : uniquement en réponse à un adversaire (jamais au partenaire), et
-        # seulement si la main n'est pas à plus d'un palier de l'adversaire.
-        if opponent_bid is not None and best_offer is not None:
+        # seulement si la main n'est pas à plus d'un palier de l'adversaire. Si je suis
+        # moi-même le dernier de mon équipe à avoir réellement enchéri (mon partenaire
+        # ne m'a donné aucune information nouvelle depuis), je ne décroche pas non plus
+        # (heuristiques.md §1.1) : je ne dois pas remonter tout seul au-delà de ce que
+        # ma propre main justifiait déjà.
+        if opponent_bid is not None and best_offer is not None and not self._team_last_bidder_is_me():
             opp_level = opponent_bid[0]
             if opp_level <= 100 and best_offer[0] <= opp_level:
                 next_level = opp_level + 10
@@ -391,7 +415,49 @@ class HeuristicPlayer(Player):
                         self._raise_contributions.add('color_support')
                         self._raise_contributions.add('color_exter')
 
+        # Coinche (heuristiques.md §1.4) : uniquement en défense (l'adversaire a la
+        # meilleure annonce), et seulement si on n'a pas par ailleurs une main qui
+        # justifierait de surenchérir à la place.
+        if opponent_bid is not None and (best_offer is None or best_offer[0] < opponent_bid[0] + 10):
+            if self._can_coincher(opponent_bid):
+                return (opponent_bid[0], opponent_bid[1], True, opponent_bid[3])
+
         return best_offer
+
+    def _needed_tricks_to_coincher(self, level: int) -> int:
+        # Plus le contrat adverse est haut, moins la défense a besoin de plis pour
+        # justifier de coincher (le preneur a d'autant plus de mal à réussir) :
+        # 2 plis à 130, 3 à 120, 4 à 110, etc. (heuristiques.md §1.4).
+        return max(0, (150 - level) // 10)
+
+    def _defense_trump_tricks(self, trump: str) -> int:
+        # A la difference de l'attaquant (1 pli par atout tenu, §1.1, puisqu'il
+        # controle la couleur), la defense ne peut pas supposer que ses atouts
+        # tiennent la route seuls (heuristiques.md §1.4) : 3 atouts quelconques ne
+        # rapportent par defaut aucun pli. L'as troisieme a l'atout (ou plus) vaut
+        # 1 pli pour l'ensemble ; l'as et le 10 avec deux autres atouts (4 en
+        # tout) valent 2 plis.
+        trumps = [c for c in self.hand if c.suit == trump]
+        ranks = {c.rank for c in trumps}
+        if 'A' in ranks and '10' in ranks and len(trumps) >= 4:
+            return 2
+        if 'A' in ranks and len(trumps) >= 3:
+            return 1
+        return 0
+
+    def _can_coincher(self, opponent_bid) -> bool:
+        level, trump, _coinched, _capot = opponent_bid
+        needed = self._needed_tricks_to_coincher(level)
+        if trump in SUITS:
+            if count_suit(self.hand, trump) < 3:
+                return False
+            off_trump_tricks = self._count_tricks(trump) - count_suit(self.hand, trump)
+            return self._defense_trump_tricks(trump) + off_trump_tricks >= needed
+        if trump == 'SA':
+            return self._count_tricks(None) >= needed
+        if trump == 'TA':
+            return self._count_tricks(None, hi='J', lo='9', third='A') >= needed
+        return False
 
     # ---------------------------------------------------------------
     # Jeu de la carte (section 2 de heuristiques.md)

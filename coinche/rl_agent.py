@@ -6,19 +6,44 @@ try:
 except Exception:
     torch = None
 
-from .game import SUITS, RANKS
+from .game import SUITS, TRUMP_ORDER, NORMAL_ORDER
 
-# Table canonique unique des 32 cartes : sert à la fois à encoder la main/les
-# cartes déjà jouées, à définir l'espace d'actions du réseau (32 sorties) et à
-# décoder un indice choisi vers une carte réelle de la main. Ne jamais dupliquer
-# cet ordre ailleurs (un décalage entre encodage/sortie/décodage serait silencieux).
-ALL_CARDS = [(s, r) for s in SUITS for r in RANKS]
-CARD_TO_INDEX = {sr: i for i, sr in enumerate(ALL_CARDS)}
 TRUMP_TYPES = ['P', 'C', 'K', 'T', 'SA', 'TA']
 
 
-def _card_index(card) -> int:
-    return CARD_TO_INDEX[(card.suit, card.rank)]
+def _canonical_slots(trump):
+    """4 « slots » de couleur symétriques par rapport à l'atout, chacun avec son
+    ordre de rang (8 positions) : pour un contrat couleur, l'atout occupe toujours
+    le slot 0 (ordre TRUMP_ORDER), les 3 autres couleurs suivent dans l'ordre fixe
+    de SUITS (ordre NORMAL_ORDER) ; à TA toutes les couleurs sont atout (les 4
+    slots en TRUMP_ORDER) ; à SA aucune ne l'est (les 4 slots en NORMAL_ORDER).
+    Ainsi une même position d'entrée/sortie du réseau garde toujours le même sens
+    stratégique (« meilleure carte du slot atout », etc.) quelle que soit la
+    couleur d'atout réelle de la donne — le réseau n'a plus à réapprendre 4 fois
+    (une par couleur physique) le même concept."""
+    if trump in SUITS:
+        suits = [trump] + [s for s in SUITS if s != trump]
+        orders = [TRUMP_ORDER, NORMAL_ORDER, NORMAL_ORDER, NORMAL_ORDER]
+    elif trump == 'TA':
+        suits = list(SUITS)
+        orders = [TRUMP_ORDER] * 4
+    else:  # 'SA'
+        suits = list(SUITS)
+        orders = [NORMAL_ORDER] * 4
+    return suits, orders
+
+
+def _slot_index(suit, rank, suits, orders) -> int:
+    slot = suits.index(suit)
+    rank_idx = orders[slot].index(rank)
+    return slot * 8 + rank_idx
+
+
+def _relative_multi_hot(cards, suits, orders) -> list:
+    v = [0.0] * 32
+    for c in cards:
+        v[_slot_index(c.suit, c.rank, suits, orders)] = 1.0
+    return v
 
 
 def _one_hot(index, size):
@@ -28,16 +53,9 @@ def _one_hot(index, size):
     return v
 
 
-def _multi_hot_cards(cards) -> list:
-    v = [0.0] * 32
-    for c in cards:
-        v[_card_index(c)] = 1.0
-    return v
-
-
-def _played_before_this_trick(player) -> list:
+def _played_before_this_trick(player, suits, orders) -> list:
     """Cartes des plis déjà complets de la donne (cf. HeuristicPlayer._played_cards),
-    sous forme de reprs 'RangSuit' dans l'historique -> multi-hot 32 dims."""
+    lues depuis l'historique ('RangSuit' -> slot canonique), sous forme multi-hot 32 dims."""
     engine = getattr(player, 'engine', None)
     v = [0.0] * 32
     if engine is None or not getattr(engine, 'history', None):
@@ -46,35 +64,213 @@ def _played_before_this_trick(player) -> list:
         for p in t['plays']:
             card_str = p['card']
             suit, rank = card_str[-1], card_str[:-1]
-            idx = CARD_TO_INDEX.get((suit, rank))
-            if idx is not None:
-                v[idx] = 1.0
+            v[_slot_index(suit, rank, suits, orders)] = 1.0
     return v
+
+
+def _slot_counts(vec32) -> list:
+    """Nombre de cartes présentes (0-8) par slot canonique, à partir d'un vecteur
+    multi-hot 32 dims déjà découpé en 4 blocs de 8 par `_canonical_slots`."""
+    return [sum(vec32[s * 8:(s + 1) * 8]) for s in range(4)]
+
+
+def _record_void_from_trick(seat_suit_pairs, void, suits):
+    """Marque comme "sec" (void) dans la couleur demandée tout siège qui a joué
+    une carte d'une autre couleur dans ce pli -- info certaine (pas une
+    supposition) puisque `legal_moves()` impose de fournir la couleur demandée
+    dès qu'on le peut encore."""
+    if not seat_suit_pairs:
+        return
+    lead_suit = seat_suit_pairs[0][1]
+    if lead_suit not in suits:
+        return
+    lead_slot = suits.index(lead_suit)
+    for seat, suit in seat_suit_pairs[1:]:
+        if suit != lead_suit:
+            void[seat][lead_slot] = True
+
+
+def _void_vec(player, trick, suits) -> list:
+    """Pour chacun des 3 autres sièges, dans l'ordre relatif à mon propre siège
+    (adversaire suivant, partenaire, adversaire précédent -- jamais moi-même,
+    puisque ma propre composition de couleurs est déjà connue via hand_vec), et
+    pour chacun des 4 slots canoniques : ce siège s'est-il déjà révélé sec dans
+    cette couleur, en ne la fournissant pas quand elle était demandée. Contrairement
+    au comptage global de `_slot_counts`/`unknown_vec`, c'est une info exacte, propre
+    à un siège précis, qui reste valable jusqu'à la fin de la donne."""
+    engine = getattr(player, 'engine', None)
+    seat = getattr(player, 'seat', 0)
+    void = [[False] * 4 for _ in range(4)]
+
+    if engine is not None and getattr(engine, 'history', None):
+        for t in engine.history.get('tricks', []):
+            pairs = [(p['seat'], p['card'][-1]) for p in t['plays']]
+            _record_void_from_trick(pairs, void, suits)
+    live_pairs = [(s, c.suit) for s, c in trick]
+    _record_void_from_trick(live_pairs, void, suits)
+
+    v = []
+    for offset in (1, 2, 3):
+        other_seat = (seat + offset) % 4
+        v.extend(1.0 if void[other_seat][slot] else 0.0 for slot in range(4))
+    return v
+
+
+def _auction_signals_vec(player, suits) -> list:
+    """Pour chacun des 3 autres sièges (ordre relatif à mon siège, comme pour les
+    renonces) : a-t-il annoncé/remonté cette couleur au moins une fois pendant
+    les enchères (12 dims), et a-t-il annoncé SA / TA au moins une fois (6 dims)
+    -- même si l'enchère finale a fini ailleurs. Sert à deviner qui détient de
+    l'atout ou des as/valets à partir de ce qui a été annoncé, pas seulement du
+    contrat final retenu."""
+    engine = getattr(player, 'engine', None)
+    seat = getattr(player, 'seat', 0)
+    bid_suit = [[False] * 4 for _ in range(4)]
+    bid_no_trump = [[False, False] for _ in range(4)]  # [seat] -> [a annonce SA, a annonce TA]
+
+    if engine is not None and getattr(engine, 'history', None):
+        for entry in engine.history.get('auction', []):
+            offer = entry.get('offer')
+            if offer is None:
+                continue
+            bidder, trump_bid = entry['seat'], offer[1]
+            if trump_bid in suits:
+                bid_suit[bidder][suits.index(trump_bid)] = True
+            elif trump_bid == 'SA':
+                bid_no_trump[bidder][0] = True
+            elif trump_bid == 'TA':
+                bid_no_trump[bidder][1] = True
+
+    v = []
+    for offset in (1, 2, 3):
+        other_seat = (seat + offset) % 4
+        v.extend(1.0 if bid_suit[other_seat][slot] else 0.0 for slot in range(4))
+    for offset in (1, 2, 3):
+        other_seat = (seat + offset) % 4
+        v.extend(1.0 if x else 0.0 for x in bid_no_trump[other_seat])
+    return v
+
+
+def _led_suit_vec(player, trick, suits) -> list:
+    """Pour chacun des 3 autres sièges : a-t-il déjà mené (ouvert) un pli dans
+    cette couleur au moins une fois cette donne. Distinct du simple comptage de
+    cartes tombées (`played_vec`) : capture une préférence/force de couleur d'un
+    siège précis (heuristiques.md §2.1.2 : rejouer la couleur où le partenaire a
+    fait sa première ouverture), une info que `played_vec` seul ne permet pas de
+    reconstituer puisqu'il ne garde pas la structure "qui a mené quel pli"."""
+    engine = getattr(player, 'engine', None)
+    seat = getattr(player, 'seat', 0)
+    led = [[False] * 4 for _ in range(4)]
+
+    def mark(leader_seat, led_suit):
+        if led_suit in suits:
+            led[leader_seat][suits.index(led_suit)] = True
+
+    if engine is not None and getattr(engine, 'history', None):
+        for t in engine.history.get('tricks', []):
+            plays = t['plays']
+            if plays:
+                mark(plays[0]['seat'], plays[0]['card'][-1])
+    if trick:
+        mark(trick[0][0], trick[0][1].suit)
+
+    v = []
+    for offset in (1, 2, 3):
+        other_seat = (seat + offset) % 4
+        v.extend(1.0 if led[other_seat][slot] else 0.0 for slot in range(4))
+    return v
+
+
+def _current_trick_winner_seat(trick, trump, engine):
+    """Siège actuellement maître du pli en cours (avant que `player` ne joue sa
+    carte), ou None si le pli est vide. Réutilise `card_order_key` du moteur
+    plutôt que de réimplémenter une troisième logique de force de carte."""
+    if not trick or engine is None:
+        return None
+    lead_suit = trick[0][1].suit
+    best = trick[0]
+    for t in trick[1:]:
+        if engine.card_order_key(t[1], lead_suit, trump) > engine.card_order_key(best[1], lead_suit, trump):
+            best = t
+    return best[0]
 
 
 def encode_state(player, trick, trump) -> list:
     """Encode l'état vu par `player` au moment de choisir une carte : sa main, les
     cartes déjà tombées dans la donne, le pli en cours, le contrat, et si son
-    camp attaque/a pris le contrat. Toujours la même taille (112), quel que soit
-    le nombre de cartes restantes en main ou déjà jouées dans le pli."""
+    camp attaque/a pris le contrat. Toujours la même taille (STATE_DIM), quel
+    que soit le nombre de cartes restantes en main ou déjà jouées dans le pli.
+
+    Les blocs main/défausses/pli ne sont plus indexés par couleur physique
+    absolue mais par slot canonique relatif à l'atout (`_canonical_slots`) : la
+    symétrie entre les 4 couleurs physiques est ainsi apportée par construction
+    plutôt que laissée à découvrir par le réseau depuis les données.
+
+    S'y ajoutent des features dérivées résumant ce qu'un joueur réel calcule
+    naturellement (longueur de couleur, cartes inconnues restantes, niveau du
+    contrat, coinche, partenaire maître du pli) : le réseau n'a plus à les
+    reconstituer lui-même par comptage depuis les multi-hot bruts, ce qui
+    accélère l'apprentissage sans retirer l'information brute sous-jacente."""
     engine = getattr(player, 'engine', None)
     taker = getattr(engine, 'taker_idx', None)
     seat = getattr(player, 'seat', 0)
     is_attacker = 1.0 if (taker is not None and taker % 2 == seat % 2) else 0.0
     is_taker = 1.0 if (taker == seat) else 0.0
 
-    hand_vec = _multi_hot_cards(player.hand)
-    played_vec = _played_before_this_trick(player)
-    trick_vec = _multi_hot_cards([c for _, c in trick])
-    lead_suit_idx = SUITS.index(trick[0][1].suit) if trick else None
-    lead_vec = _one_hot(lead_suit_idx, 4)
+    suits, orders = _canonical_slots(trump)
+    hand_vec = _relative_multi_hot(player.hand, suits, orders)
+    played_vec = _played_before_this_trick(player, suits, orders)
+    trick_vec = _relative_multi_hot([c for _, c in trick], suits, orders)
+    lead_slot = suits.index(trick[0][1].suit) if trick else None
+    lead_vec = _one_hot(lead_slot, 4)
     pos_vec = _one_hot(len(trick), 4)
     trump_vec = _one_hot(TRUMP_TYPES.index(trump) if trump in TRUMP_TYPES else None, 6)
 
-    return hand_vec + played_vec + trick_vec + lead_vec + pos_vec + trump_vec + [is_attacker, is_taker]
+    # Longueur de couleur : nombre de cartes de ce slot à la donne initiale (pas
+    # la main courante, qui décroît trivialement au fil de la donne et se
+    # retrouve déjà dans hand_vec) -> une propriété stable du jeu de départ,
+    # comme pour la défausse côté HeuristicPlayer (cf. self.initial_hand).
+    initial_hand = getattr(player, 'initial_hand', player.hand)
+    initial_vec = _relative_multi_hot(initial_hand, suits, orders)
+    length_vec = [c / 8.0 for c in _slot_counts(initial_vec)]
+
+    # Cartes inconnues restantes : ni dans ma main courante, ni déjà tombées
+    # (pli en cours inclus) -> encore réparties entre partenaire et adversaires.
+    hand_counts = _slot_counts(hand_vec)
+    played_counts = _slot_counts(played_vec)
+    trick_counts = _slot_counts(trick_vec)
+    unknown_vec = [
+        (8 - hand_counts[s] - played_counts[s] - trick_counts[s]) / 8.0
+        for s in range(4)
+    ]
+
+    contract = getattr(engine, 'contract', None)
+    level_scalar = (getattr(contract, 'level', 0) or 0) / 250.0
+    coinched_scalar = 1.0 if getattr(contract, 'coinched', False) else 0.0
+
+    winner_seat = _current_trick_winner_seat(trick, trump, engine)
+    partner_winning = 1.0 if (winner_seat is not None and winner_seat == (seat + 2) % 4) else 0.0
+
+    # Renonces : quels sièges (hors moi-même) se sont déjà révélés secs dans
+    # quelle couleur, en ne la fournissant pas -- info certaine, contrairement à
+    # l'ambiguïté partenaire/adversaire tolérée ailleurs sur les cartes non vues.
+    void_vec = _void_vec(player, trick, suits)
+
+    # Enchères : qui (parmi les 3 autres sièges) a annoncé/remonté quelle
+    # couleur ou SA/TA -- signal de qui détient l'atout ou des as/valets.
+    auction_vec = _auction_signals_vec(player, suits)
+
+    # Qui a déjà mené (ouvert) un pli dans quelle couleur -- préférence/force de
+    # couleur par siège, distincte du simple comptage de cartes tombées.
+    led_vec = _led_suit_vec(player, trick, suits)
+
+    return (hand_vec + played_vec + trick_vec + lead_vec + pos_vec + trump_vec
+            + [is_attacker, is_taker] + length_vec + unknown_vec
+            + [level_scalar, coinched_scalar, partner_winning] + void_vec
+            + auction_vec + led_vec)
 
 
-STATE_DIM = 32 + 32 + 32 + 4 + 4 + 6 + 2  # 112
+STATE_DIM = 32 + 32 + 32 + 4 + 4 + 6 + 2 + 4 + 4 + 3 + 12 + 18 + 12  # 165
 
 
 class SimplePolicy:
@@ -93,7 +289,7 @@ if torch is not None:
         def __init__(self, in_dim=STATE_DIM, hidden=128):
             super().__init__()
             self.fc1 = nn.Linear(in_dim, hidden)
-            self.fc2 = nn.Linear(hidden, 32)  # un logit par carte possible du jeu
+            self.fc2 = nn.Linear(hidden, 32)  # un logit par slot canonique (couleur relative x rang)
 
         def forward(self, x):
             x = F.relu(self.fc1(x))
@@ -115,8 +311,9 @@ if torch is not None:
         def choose_card(self, player, legal, leader, trick, trump):
             x = torch.tensor(encode_state(player, trick, trump), dtype=torch.float32, device=self.device)
             logits = self.net(x)
+            suits, orders = _canonical_slots(trump)
             mask = torch.full((32,), float('-inf'), device=self.device)
-            legal_idx = [_card_index(c) for c in legal]
+            legal_idx = [_slot_index(c.suit, c.rank, suits, orders) for c in legal]
             mask[legal_idx] = 0.0
             masked_logits = logits + mask
 
@@ -127,7 +324,8 @@ if torch is not None:
             else:
                 action_idx = torch.argmax(masked_logits)
 
-            chosen_suit, chosen_rank = ALL_CARDS[int(action_idx.item())]
+            slot, rank_pos = divmod(int(action_idx.item()), 8)
+            chosen_suit, chosen_rank = suits[slot], orders[slot][rank_pos]
             return next(c for c in legal if c.suit == chosen_suit and c.rank == chosen_rank)
 
         def update(self, reward: float):

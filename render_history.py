@@ -112,6 +112,27 @@ def running_team_scores(history, trump):
     return running, belote_info
 
 
+def coinche_final_scores(history, raw_final_scores, belote_info):
+    """Si le contrat est coinché, remplace le score brut de plis par le forfait
+    fixe de regles_coinche.md §5 (160 + 2x le contrat pour l'équipe qui gagne la
+    donne, 0 pour l'autre) -- reproduit exactement GameEngine.play() (game.py).
+    `raw_final_scores` est le score de plis (points + der + belote) après le
+    dernier pli, tel que renvoyé par `running_team_scores`."""
+    contract = history['contract']
+    if not contract.get('coinched'):
+        return None
+    taker_team = contract['taker'] % 2
+    defense_team = 1 - taker_team
+    level = contract['level']  # deja 250 pour un capot (cf. GameEngine._normalize_bid)
+    attack_success = raw_final_scores[taker_team] >= level
+    winner = taker_team if attack_success else defense_team
+    loser = 1 - winner
+    belote_bonus = {0: 0, 1: 0}
+    if belote_info is not None:
+        belote_bonus[belote_info['team']] = 20
+    return {winner: 160 + 2 * level + belote_bonus[winner], loser: belote_bonus[loser]}
+
+
 def build_stages(history):
     stages = []
     hands = [list(h) for h in history['deal_hands']]
@@ -144,6 +165,7 @@ def generate_page(history, out_path):
     initials, stages = build_stages(history)
     trump = history['contract'].get('trump')
     scores, belote_info = running_team_scores(history, trump)
+    final_coinche = coinche_final_scores(history, scores[-1], belote_info) if scores else None
     title = 'Coinche History Viewer'
     tabs = ['Auction'] + [f'Trick {i}' for i in range(1, len(stages)+1)]
 
@@ -194,6 +216,14 @@ def generate_page(history, out_path):
                 belote_badge_0 = badge
             else:
                 belote_badge_1 = badge
+        final_score_html = ''
+        if final_coinche is not None and i == len(stages):
+            final_score_html = f'''
+            <div class="score-cumul coinche-final">
+              <strong>Score final (coinché &times;2)</strong>
+              <span class="score-team score-team-0">{TEAM_LABELS[0]}: {final_coinche.get(0, 0)}</span>
+              <span class="score-team score-team-1">{TEAM_LABELS[1]}: {final_coinche.get(1, 0)}</span>
+            </div>'''
         panel = f'''
         <div class="panel" id="panel-{i}">
           <div class="board">
@@ -207,10 +237,11 @@ def generate_page(history, out_path):
             <div><strong>Trick</strong> {stage['trick']}</div>
             <div><strong>Winner</strong> {winner_label}</div>
             <div class="score-cumul">
-              <strong>Score cumulé</strong>
+              <strong>Score de plis (brut)</strong>
               <span class="score-team score-team-0">{TEAM_LABELS[0]}: {score0}{belote_badge_0}</span>
               <span class="score-team score-team-1">{TEAM_LABELS[1]}: {score1}{belote_badge_1}</span>
             </div>
+            {final_score_html}
           </div>
           {completed_html}
         </div>
@@ -296,6 +327,8 @@ buttons.forEach(function(btn) {
         contract_text = '250'
     else:
         contract_text = f"{history['contract']['level']}{history['contract'].get('trump')}"
+    if history['contract'].get('coinched'):
+        contract_text += ' (coinché ×2)'
     html = html.replace('__TITLE__', title)
     html = html.replace('__CONTRACT__', contract_text)
     html = html.replace('__TAKER__', str(PLAYER_POSITIONS.get(history['contract'].get('taker'), history['contract'].get('taker'))))

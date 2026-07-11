@@ -22,6 +22,8 @@ Si un adversaire a déjà parlé, le joueur doit "décrocher" : par exemple si l
 
 Un décrochage jusqu'à 100, quand le joueur n'a pas la certitude que son partenaire a le 9 (donc sans confirmation de soutien d'atout), n'est possible que s'il compte lui-même au moins 4 plis dans sa propre main (atouts en main, sans compter automatiquement le 9, plus les plis hors atout comme un as exter). Ce décompte inclut alors déjà l'éventuel as exter : si le partenaire remonte ensuite l'enchère, ce joueur ne doit pas re-compter cet as exter comme une remontée supplémentaire, puisqu'il l'a déjà utilisé pour justifier son décrochage à 100.
 
+Un joueur ne décroche pas s'il est lui-même le dernier de son équipe à avoir réellement enchéri (donc si son partenaire ne lui a apporté aucune information nouvelle depuis, qu'il ait passé ou n'ait pas encore parlé) : si un joueur propose un contrat et que son partenaire ne lui donne rien de plus, il ne doit pas remonter tout seul au-delà de ce que sa main justifiait déjà.
+
 Note sur l'enchère à couleur en réponse au partenaire qui a parlé à SA : on prend en compte les as du partenaire, -1 (potentiellement dans l'atout). Par exemple, si le partenaire a parlé à 90 SA et que l'adversaire avait dit 80 couleur, alors on comprend que le partenaire a deux as. On prend en compte un de ces as dans l'annonce à la couleur. Quand le partenaire remonte, il sait qu'un de ces as est déjà pris en compte, et potentiellement devra remonter le second s'il est hors atout, ou d'autres plis qu'il peut avoir.
 
 # 1.2) Enchères SA
@@ -36,6 +38,18 @@ Comme à la couleur, on tolère de "légèrement mentir" pour annoncer le 4e As 
 # 1.3) Enchères TA
 
 Les enchères TA suivent le même principe que SA, en considérant les Valets plutôt que les As et les 9 plutôt que les 10 — y compris pour le garde-fou des 4 plis avant d'ajouter les points de 9 non-secs, en considérant alors le Valet à la place de l'As, le 9 à la place du 10, et l'As à la place du Roi.
+
+# 1.4) Coincher
+
+Un joueur en défense (l'adversaire a la meilleure annonce) peut, plutôt que de passer ou surenchérir, coincher (doubler) le contrat adverse. La coinche fixe immédiatement le contrat à la dernière annonce faite, sans qu'il soit besoin de surenchérir de 10 : elle ne change ni le palier, ni la couleur, ni le camp qui a annoncé (le preneur reste celui qui a fait l'annonce doublée).
+
+A un contrat couleur, un joueur peut coincher s'il a au moins 3 atouts en défense, et un compte théorique d'au moins N plis dans sa main, où N dépend du palier du contrat adverse : 2 plis si le contrat est à 130, 3 plis si 120, 4 plis si 110, etc. (N = (150 - palier)/10, avec un minimum de 0 : au-delà de 150, les 3 atouts suffisent déjà).
+
+Le compte des plis d'atout en défense ne suit pas la même règle qu'à l'attaque en §1.1 (où chaque atout tenu vaut 1 pli, puisque l'attaquant contrôle la couleur) : en défense, 3 atouts quelconques ne rapportent par défaut aucun pli. Si la défense a l'as troisième à l'atout (ou plus, donc l'as accompagné d'au moins 2 autres atouts), l'ensemble de ces atouts compte pour 1 pli. Si elle a l'as et le 10 à l'atout, plus deux autres atouts (donc 4 atouts en tout), l'ensemble compte pour 2 plis. Les plis hors atout se comptent ensuite comme d'habitude (§1.1 : 1 pli par As, 1 pli par 10 troisième, 2 plis pour 10+Roi troisième, 2 plis pour As+10 même couleur).
+
+A SA et à TA, il n'y a pas de condition d'atouts (inexistante à SA, sans objet à TA puisque toutes les couleurs y sont atout) : on compte directement les plis théoriques dans sa main avec le même seuil N que ci-dessus. Par exemple à SA, un contrat à 120 nécessite de compter 3 plis pour coincher. A TA, le compte de plis considère les valets/9/as comme en §1.3.
+
+Un joueur ne coinche que s'il n'a pas par ailleurs, dans sa propre main, de quoi surenchérir légitimement à la place.
 
 # 2) Jeu naïf
 
@@ -112,3 +126,7 @@ Quand un joueur est amené à défausser :
 # 2.4) Indications stratégiques générales
 
 De façon générale, les joueurs doivent, pour marquer des plis et donc des points, avoir le plus de cartes maitres possibles. Pour compter des plis potentiels par exemples, et essayer de jouer au mieux, hors atout par exemple, il est donc important de compter les As, puis les 10 derrière les As, et à partir du 3e pli à une couleur, la probabilité qu'une carte quelconque devienne maitre, même un petit 7, augmente, car on peut être le dernier joueur à en avoir : c'est ce qu'on appelle avoir une longue. Lors du jeu, il convient donc, dans le cas général naif, de mettre ses as au premier tour d'une couleur, les 10 au second, et aviser ensuite avec les cartes maitres restantes de la couleur, et ce, pour chaque couleur. On procède de façon similaire avec les atouts, avec le valet et le 9, et c'est pour ça qu'on joue le valet au premier tour, et le 9 au second, quand deux partenaires ont ensemble le valet et le 9. 
+
+# 2.5) Partie coinchée
+
+TO DO : changer l'heuristique de jeu.
