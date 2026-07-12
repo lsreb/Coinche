@@ -129,4 +129,9 @@ De façon générale, les joueurs doivent, pour marquer des plis et donc des poi
 
 # 2.5) Partie coinchée
 
-TO DO : changer l'heuristique de jeu.
+Coinche couleur :
+
+Quand l'attaque se fait coincher, elle joue normalement a priori.
+
+Quand le joueur défenseur coinche, il peut tenter une défense agressive : s'il se trouve juste avant le preneur principal, il donne la priorité absolue au jeu dans sa longue, avant même de tenter de passer ses as s'il a la main. Evidemment il joue quand même ses as hors atouts, si un joueur demande la couleur.
+S'il se trouve juste après, il joue normalement.

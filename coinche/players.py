@@ -521,6 +521,59 @@ class HeuristicPlayer(Player):
         # au tour suivant, la consigne s'inverse (on joue le 9 si on l'a).
         return any(card[-1] == trump for card in self._played_cards())
 
+    def _attaquant_principal_seat(self):
+        # heuristiques.md distingue le "preneur principal"/"attaquant principal"
+        # (celui qui a le premier annonce le type d'annonce finalement retenu,
+        # ex: le 90 Coeur initial) du "partenaire suiveur" qui a ensuite remonte
+        # (ex: le 120 Coeur) -- §2.1.1.1, §2.1.3, §2.5. Ce n'est pas forcement le
+        # meme siege que engine.taker_idx, qui est seulement l'auteur de la
+        # toute derniere annonce retenue (correct pour le score et pour "le
+        # preneur" au sens de la coinche, §1.4, mais pas pour cette distinction
+        # de jeu entre les deux attaquants).
+        engine = getattr(self, 'engine', None)
+        taker = getattr(engine, 'taker_idx', None)
+        contract = getattr(engine, 'contract', None)
+        if engine is None or taker is None or contract is None or not getattr(engine, 'history', None):
+            return taker
+        team = taker % 2
+        for entry in engine.history.get('auction', []):
+            offer = entry.get('offer')
+            if offer is not None and entry['seat'] % 2 == team and offer[1] == contract.trump:
+                return entry['seat']
+        return taker
+
+    def _color_contract_coinched(self) -> bool:
+        # heuristiques.md §2.5 ne s'applique qu'a un contrat couleur coinche (pas SA/TA).
+        engine = getattr(self, 'engine', None)
+        contract = getattr(engine, 'contract', None)
+        return bool(contract is not None and contract.coinched and contract.trump in SUITS)
+
+    def _coincheur_seat(self):
+        # Le siege qui a effectivement pose la coinche, si l'enchere s'est terminee
+        # ainsi (derniere offre de l'enchere avec le flag coinche).
+        engine = getattr(self, 'engine', None)
+        if engine is None or not getattr(engine, 'history', None):
+            return None
+        auction = engine.history.get('auction', [])
+        if not auction:
+            return None
+        last = auction[-1]
+        offer = last.get('offer')
+        return last['seat'] if offer is not None and offer[2] else None
+
+    def _is_coincheur_before_taker(self) -> bool:
+        # heuristiques.md §2.5 : le defenseur qui a lui-meme coinche, et qui se
+        # trouve juste avant le preneur PRINCIPAL (l'initiateur, cf.
+        # _attaquant_principal_seat, pas forcement engine.taker_idx) dans
+        # l'ordre de jeu, donne priorite absolue au jeu dans sa longue.
+        if not self._color_contract_coinched():
+            return False
+        preneur_principal = self._attaquant_principal_seat()
+        seat = getattr(self, 'seat', None)
+        if preneur_principal is None or seat is None or seat != (preneur_principal + 3) % 4:
+            return False
+        return self._coincheur_seat() == seat
+
     def _is_confirmed_master(self, card: Card, trump: str) -> bool:
         # Vraie même si ce n'est ni l'as ni le 10 : toutes les cartes qui la
         # dominent dans sa couleur sont déjà tombées, donc elle gagne à coup sûr.
@@ -580,6 +633,20 @@ class HeuristicPlayer(Player):
         pool = [c for c in offsuit if c.suit == suit] if suit else offsuit
         return self._weakest(pool, trump)
 
+    def _lead_coinche_defense_long_suit(self, trump, master_hi, master_lo):
+        # heuristiques.md §2.5 : defense agressive du coincheur juste avant le
+        # preneur principal, priorite absolue a la longue (en commencant par
+        # l'as si elle s'y trouve) pour le forcer a couper. L'attaque, elle,
+        # joue normalement quand elle se fait coincher (§2.5).
+        suit = self._choose_attack_suit(trump)
+        if suit is None:
+            return self._weakest(self.hand, trump)
+        cards = [c for c in self.hand if c.suit == suit]
+        aces = [c for c in cards if c.rank == master_hi]
+        if aces:
+            return aces[0]
+        return self._weakest(cards, trump)
+
     def _lead_taker_trump(self, trump, master_hi, master_lo):
         if has_rank(self.hand, trump, 'J'):
             return next(c for c in self.hand if c.suit == trump and c.rank == 'J')
@@ -617,6 +684,10 @@ class HeuristicPlayer(Player):
         return self._lead_offsuit_master(trump, master_hi, master_lo)
 
     def _lead_defense(self, trump, master_hi, master_lo):
+        if self._is_coincheur_before_taker():
+            # heuristiques.md §2.5 : le coincheur juste avant le preneur donne
+            # priorite absolue a sa longue, avant meme ses as hors-atout.
+            return self._lead_coinche_defense_long_suit(trump, master_hi, master_lo)
         offsuit_masters = [c for c in self.hand if c.rank == master_hi and c.suit != trump]
         if offsuit_masters:
             return offsuit_masters[0]
@@ -828,7 +899,10 @@ class HeuristicPlayer(Player):
         engine = getattr(self, 'engine', None)
         taker = getattr(engine, 'taker_idx', None)
         is_attacker = (taker is not None) and (taker % 2 == self.seat % 2)
-        is_taker = (taker == self.seat)
+        # "preneur principal"/"attaquant principal" = l'initiateur du contrat
+        # retenu (§2.1.1.1), pas forcement engine.taker_idx (auteur de la
+        # derniere annonce) -- cf. _attaquant_principal_seat.
+        is_taker = (self._attaquant_principal_seat() == self.seat)
         master_hi, master_lo = self._master_ranks(trump)
 
         if not trick:
