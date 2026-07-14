@@ -299,14 +299,19 @@ if torch is not None:
         """Policy entraînable par REINFORCE. `record=True` (par défaut) échantillonne
         et mémorise le log-prob de chaque décision ; `record=False` (évaluation)
         joue en glouton (argmax) sans toucher au buffer de trajectoire."""
-        def __init__(self, device='cpu', lr=1e-3, baseline_beta=0.95):
+        def __init__(self, device='cpu', lr=1e-3, baseline_beta=0.95, entropy_beta=0.01):
             self.device = device
             self.net = CardNet().to(device)
             self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
             self.record = True
             self.saved_log_probs = []
+            self.saved_entropies = []
             self.baseline = 0.0
             self.baseline_beta = baseline_beta
+            # Bonus d'entropie (cf. remarques_rl.md point 4) : force l'exploration
+            # pendant le REINFORCE meme si la policy demarre tres confiante apres un
+            # pre-entrainement par imitation pousse a convergence (pretrain.py).
+            self.entropy_beta = entropy_beta
 
         def choose_card(self, player, legal, leader, trick, trump):
             x = torch.tensor(encode_state(player, trick, trump), dtype=torch.float32, device=self.device)
@@ -321,6 +326,7 @@ if torch is not None:
                 dist = torch.distributions.Categorical(logits=masked_logits)
                 action_idx = dist.sample()
                 self.saved_log_probs.append(dist.log_prob(action_idx))
+                self.saved_entropies.append(dist.entropy())
             else:
                 action_idx = torch.argmax(masked_logits)
 
@@ -332,16 +338,20 @@ if torch is not None:
             """Une mise à jour REINFORCE par donne : loss = -(somme des log-probs de
             la trajectoire, les deux sièges de l'équipe confondus) * avantage, où
             l'avantage est la reward moins une moyenne mobile (baseline) pour
-            réduire la variance. Vide le buffer de trajectoire après coup."""
+            réduire la variance, moins un bonus d'entropie (`entropy_beta`) qui
+            pousse la policy à rester exploratoire. Vide les buffers de
+            trajectoire après coup."""
             if not self.saved_log_probs:
                 return
             advantage = reward - self.baseline
-            loss = -torch.stack(self.saved_log_probs).sum() * advantage
+            entropy_bonus = torch.stack(self.saved_entropies).sum()
+            loss = -torch.stack(self.saved_log_probs).sum() * advantage - self.entropy_beta * entropy_bonus
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
             self.baseline = self.baseline_beta * self.baseline + (1 - self.baseline_beta) * reward
             self.saved_log_probs = []
+            self.saved_entropies = []
 
         def save(self, path):
             torch.save(self.net.state_dict(), path)

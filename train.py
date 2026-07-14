@@ -47,6 +47,9 @@ def main():
     parser.add_argument('--eval-every', type=int, default=200, help='Frequence (en episodes) des evaluations gloutonnes.')
     parser.add_argument('--eval-games', type=int, default=100, help='Nombre de donnes par evaluation.')
     parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--entropy-beta', type=float, default=0.01,
+                         help="Poids du bonus d'entropie dans la loss REINFORCE (force l'exploration, "
+                              "utile en particulier apres un --load d'une policy pre-entrainee par imitation).")
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--save', default=None, help="Chemin pour sauvegarder les poids en fin d'entrainement.")
     parser.add_argument('--load', default=None, help='Chemin pour reprendre depuis des poids sauvegardes.')
@@ -59,7 +62,7 @@ def main():
         random.seed(args.seed)
         torch.manual_seed(args.seed)
 
-    policy = NeuralPolicy(lr=args.lr)
+    policy = NeuralPolicy(lr=args.lr, entropy_beta=args.entropy_beta)
     if args.load:
         policy.load(args.load)
         print('poids charges depuis', args.load)
