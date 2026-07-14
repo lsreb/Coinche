@@ -849,13 +849,20 @@ class HeuristicPlayer(Player):
 
         if same:
             if is_attacker and lead == trump and trump in SUITS:
-                # Suite du "faire tomber les atouts" (2.1.1.1) : quel que soit le meneur du
-                # pli, l'attaque continue la séquence valet puis 9 puis le plus faible.
+                # Suite du "faire tomber les atouts" (2.1.1.1) : valet puis 9 (toujours
+                # légaux ici : rien ne bat le valet, et si on tient le 9 sans le valet,
+                # soit il bat le maître actuel, soit ce maître est le valet lui-même et
+                # plus rien ne peut de toute façon monter en force - regles_coinche.md
+                # §4). Sans l'un ou l'autre, en revanche, il faut vérifier si une carte
+                # doit monter en force sur le maître actuel avant de jouer la plus
+                # faible : sinon on risque de sous-couper illégalement.
                 for rank in ('J', '9'):
                     for c in same:
                         if c.rank == rank:
                             return c
-                return self._weakest(same, trump, lead)
+                beating = [c for c in same
+                           if self._rank_strength(c, trump, lead) > self._rank_strength(current_winner[1], trump, lead)]
+                return self._weakest(beating, trump, lead) if beating else self._weakest(same, trump, lead)
             winning = [c for c in same if self._rank_strength(c, trump, lead) > self._rank_strength(current_winner[1], trump, lead)]
             if winning:
                 # Priorité à la carte maitre (l'As, ou le 10 si l'as est déjà passé) pour
