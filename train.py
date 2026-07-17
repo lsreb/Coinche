@@ -113,6 +113,10 @@ def main():
                          help="Sauvegarde un checkpoint tous les N episodes, en plus de --save en fin d'entrainement.")
     parser.add_argument('--checkpoint-dir', default=None,
                          help='Dossier de sauvegarde des checkpoints (requis avec --checkpoint-every).')
+    parser.add_argument('--episode-offset', type=int, default=0,
+                         help="Decalage ajoute au compteur d'episode (logs, dealer, decroissance d'entropie, "
+                              "nom des checkpoints) : pour reprendre un entrainement precedent avec une "
+                              "numerotation absolue coherente, mettre le nombre d'episodes deja effectues.")
     args = parser.parse_args()
 
     if torch is None:
@@ -134,8 +138,9 @@ def main():
     adv_window = []
     start = time.perf_counter()
     for ep in range(1, args.episodes + 1):
-        policy.entropy_beta = entropy_beta_for_episode(args.entropy_beta, ep, args.entropy_decay)
-        dealer = ep % 4
+        global_ep = ep + args.episode_offset
+        policy.entropy_beta = entropy_beta_for_episode(args.entropy_beta, global_ep, args.entropy_decay)
+        dealer = global_ep % 4
         reward, hands = run_episode(policy, dealer=dealer)
         if args.no_heuristic_baseline:
             training_reward = reward
@@ -152,14 +157,14 @@ def main():
         if ep % args.eval_every == 0:
             avg_train = sum(window) / len(window)
             avg_adv = sum(adv_window) / len(adv_window)
-            avg_eval, win_rate = evaluate(policy, args.eval_games, start_dealer=ep)
+            avg_eval, win_rate = evaluate(policy, args.eval_games, start_dealer=global_ep)
             elapsed = time.perf_counter() - start
-            print(f"episode {ep:6d}  train_avg={avg_train:+7.1f}  adv_avg={avg_adv:+7.1f}  "
+            print(f"episode {global_ep:6d}  train_avg={avg_train:+7.1f}  adv_avg={avg_adv:+7.1f}  "
                   f"eval_avg({args.eval_games})={avg_eval:+7.1f}  win_rate={100*win_rate:5.1f}%  "
                   f"entropy_beta={policy.entropy_beta:.4f}  baseline={policy.baseline:+7.1f}  ({elapsed:.1f}s)")
 
         if args.checkpoint_every and args.checkpoint_dir and ep % args.checkpoint_every == 0:
-            policy.save(os.path.join(args.checkpoint_dir, f'ckpt_ep{ep}.pt'))
+            policy.save(os.path.join(args.checkpoint_dir, f'ckpt_ep{global_ep}.pt'))
 
     if args.save:
         policy.save(args.save)
