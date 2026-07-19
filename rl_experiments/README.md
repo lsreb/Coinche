@@ -93,3 +93,36 @@ Resultat, mesure sur la vraie reference (`eval_policy.py --games 1500` vs
 naturelle : repeter l'operation (self-play contre une copie figee de
 `exp_selfplay_frozen100k/final.pt`) pour voir si le gain se reproduit ou si un
 nouveau plateau apparait.
+
+## `exp_selfplay_frozen150k/` : round 2 de self-play (point final retenu)
+
+Meme recette, un round de plus : 50k episodes supplementaires (numerotation
+absolue 200001-250000, seed=9) a partir de `exp_selfplay_frozen100k/final.pt`
+(sieges 0/2), contre une copie figee **du meme checkpoint** aux sieges 1/3
+(`exp_selfplay_frozen100k/final.pt` reste necessaire comme adversaire figes de
+ce round et n'a pas ete supprime).
+
+Contrairement au round 1, **pas de progression nette sur ce segment** : eval
+robuste (1500 parties vs `HeuristicPlayer`, memes donnes) ep200000=+9.76,
+ep210000=+8.49, ep220000=+6.33, ep230000=+15.34, ep240000=+4.23,
+ep250000(`final.pt`)=+5.78 -- oscillation sans tendance, le pic a ep230000
+s'est avere etre en grande partie du bruit d'evaluation (retombe a +8.71 sur
+un reeval a 10000 parties, contre +6.51 pour `final.pt` sur le meme
+echantillon -- ecart de ~2 points, sous l'erreur standard mesuree a ce n
+(ecart-type empirique du reward par donne = 124 points, soit SE~1.25 a
+n=10000). Les deux checkpoints sont statistiquement indiscernables ; `final.pt`
+est garde comme point final car c'est l'arret naturel de l'entrainement, pas
+un choix cherry-picke sur l'eval.
+
+Interpretation : un round de self-play contre une copie figee donne un vrai
+gain (round 1), mais continuer contre la **meme** copie figee au-dela ne
+pousse plus la policy plus loin -- probablement parce que l'adversaire fixe
+devient lui aussi "battu en moyenne" et cesse de fournir un gradient utile,
+comme observe avec `HeuristicPlayer` dans `exp_lowlr_lowent`. Piste suivante :
+rafraichir l'adversaire fige a chaque round (curriculum type fictitious
+self-play) plutot que de repeter un round contre le meme snapshot.
+
+**Bilan de la lignee complete** (`eval_policy.py --games 1500`, vs
+`HeuristicPlayer`) : `imit.pt` -3.54 -> `exp_lowlr_lowent` +5.79 ->
+`exp_selfplay_frozen100k` +9.76 -> `exp_selfplay_frozen150k` +5.78 (dans le
+bruit du round precedent, pas une regression averee vu la marge d'erreur).
