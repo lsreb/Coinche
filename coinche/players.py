@@ -691,6 +691,20 @@ class HeuristicPlayer(Player):
         offsuit_masters = [c for c in self.hand if c.rank == master_hi and c.suit != trump]
         if offsuit_masters:
             return offsuit_masters[0]
+        # Meme logique que _lead_offsuit_master (cote attaque) : le 10 devenu
+        # maitre (as deja passe), puis toute carte devenue maitresse par
+        # elimination meme si ce n'est ni l'as ni le 10 (heuristiques.md ligne
+        # 71/128, _is_confirmed_master) -- avant, seul un as litteral etait
+        # reconnu comme carte maitre a jouer en tete, une dame ou un roi
+        # devenus maitres par elimination tombaient dans le repli "plus
+        # faible" et etaient gaspilles en defausse plutot que menes.
+        offsuit = [c for c in self.hand if c.suit != trump]
+        seconds = [c for c in offsuit if c.rank == master_lo and self._card_seen_before(c.suit, master_hi)]
+        if seconds:
+            return seconds[0]
+        confirmed = [c for c in offsuit if self._is_confirmed_master(c, trump)]
+        if confirmed:
+            return self._strongest(confirmed, trump)
         singletons = [s for s in SUITS if s != trump and count_suit(self.hand, s) == 1]
         if singletons:
             return next(c for c in self.hand if c.suit == singletons[0])
