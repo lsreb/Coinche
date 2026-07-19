@@ -126,3 +126,39 @@ self-play) plutot que de repeter un round contre le meme snapshot.
 `HeuristicPlayer`) : `imit.pt` -3.54 -> `exp_lowlr_lowent` +5.79 ->
 `exp_selfplay_frozen100k` +9.76 -> `exp_selfplay_frozen150k` +5.78 (dans le
 bruit du round precedent, pas une regression averee vu la marge d'erreur).
+
+## `exp_pool_350k/` : entrainement contre un pool d'adversaires (point final retenu)
+
+Le round 2 de self-play ci-dessus n'a pas progresse -- hypothese : une fois la
+policy meilleure en moyenne que son unique adversaire fixe, cet adversaire
+cesse de fournir un gradient utile (meme mecanisme que le plateau de
+`exp_lowlr_lowent` contre `HeuristicPlayer` seul). Test : au lieu d'un
+adversaire fixe unique, `train.py --opponent` tire desormais un adversaire au
+hasard **a chaque episode** parmi un pool (`heuristic,exp_selfplay_frozen100k
+/final.pt,exp_selfplay_frozen150k/final.pt`) ; le contre-factuel du point 3
+suit toujours l'adversaire tire cet episode-la (cf. `counterfactual_reward`
+dans `train.py`), pas un adversaire fixe different de ce qui est reellement
+joue. L'eval loggee pendant l'entrainement reste vs `HeuristicPlayer` par
+defaut (`evaluate()`), pour rester comparable aux runs precedents malgre le
+pool.
+
+100k episodes (numerotation absolue 250001-350000, seed=10) a partir de
+`exp_selfplay_frozen150k/final.pt`. Seuls `final.pt` et `log.txt` sont gardes.
+
+Resultat (`eval_policy.py --games 10000` vs `HeuristicPlayer`, memes donnes,
+precision bien meilleure qu'a 1500 : ecart-type empirique du reward mesure a
+124/donne, donc SE~1.25 a n=10000) :
+
+| Policy | eval_avg(10000) | win_rate |
+|---|---:|---:|
+| `imit.pt` | -3.42 | 48.5% |
+| `exp_lowlr_lowent` | +3.44 | 51.0% |
+| `exp_selfplay_frozen100k` | +4.09 | 50.9% |
+| `exp_selfplay_frozen150k` | +5.95 | 52.0% |
+| **`exp_pool_350k/final.pt`** | **+9.06** | **53.0%** |
+
+=> toute la lignee progresse desormais de facon monotone, et le pool est la
+meilleure etape depuis le debut : +3.1 points par rapport au precedent
+meilleur (`exp_selfplay_frozen150k`), un ecart net vu la marge d'erreur a ce
+n. Confirme l'hypothese : varier l'adversaire evite le plafonnement observe a
+chaque fois qu'un round s'acharnait contre une seule reference fixe.
