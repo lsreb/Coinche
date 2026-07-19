@@ -57,8 +57,39 @@ deux ensemble (`exp_lowlr_lowent`) est la meilleure combinaison trouvee.
 Progression sur les 100k episodes (`eval_policy.py`, 1500 parties, memes
 donnes) : ep20000 = +6.20, ep50000 = +5.13, ep100000 (`final.pt`) = +5.79 —
 plateau atteint des les premiers 20k episodes, pas de gain net supplementaire
-sur les 80k episodes suivants malgre le budget investi. Prochaine piste
-suggeree : le signal contre-factuel reste bruite (une seule trajectoire
-heuristique de reference par donne), ou les points 1/2 de `remarques_rl.md`
-(espace d'etat / architecture) limitent la policy plutot que les
-hyperparametres d'optimisation.
+sur les 80k episodes suivants malgre le budget investi.
+
+## `exp_selfplay_frozen100k/` : self-play contre une copie figee (retenu)
+
+Le plateau de `exp_lowlr_lowent` ci-dessus a suggere que `HeuristicPlayer`
+comme adversaire fixe ne "pousse" plus la policy une fois qu'elle le bat deja
+en moyenne. Test : reprendre l'entrainement a partir de
+`exp_lowlr_lowent/final.pt` (sieges 0/2), mais face a une **copie figee** du
+meme checkpoint aux sieges 1/3 (`train.py --opponent`, jeu glouton, jamais
+mise a jour) plutot que face a `HeuristicPlayer`. Le contre-factuel du point 3
+suit desormais lui aussi l'adversaire reel (donc la copie figee aux 4 sieges,
+plus Heuristic -- cf. docstring de `counterfactual_reward` dans `train.py`),
+pour rester une reference coherente avec ce qui est reellement joue.
+
+100k episodes de plus (numerotation absolue 100001-200000, `--episode-offset
+100000`, seed=8, memes `lr=1e-4`/`entropy-beta=0.002` constant que
+`exp_lowlr_lowent`). Seuls `final.pt` et `log.txt` sont gardes (memes
+conventions que ci-dessus). Note : dans `log.txt`, `eval_avg`/`win_rate`
+mesurent la progression **contre la copie figee** (proche de 50%, attendu vu
+que les deux partent des memes poids), pas contre `HeuristicPlayer`.
+
+Resultat, mesure sur la vraie reference (`eval_policy.py --games 1500` vs
+`HeuristicPlayer`, memes donnes que les tableaux precedents) :
+
+| Policy | eval_avg(1500) | win_rate |
+|---|---:|---:|
+| `exp_selfplay_frozen100k/final.pt` | **+9.76** | **53.6%** |
+| `exp_lowlr_lowent/final.pt` (point de depart) | +5.79 | 50.7% |
+| `heuristic` (miroir) | +1.38 | 49.7% |
+| `imit.pt` | -3.54 | 49.7% |
+
+=> le self-play a fait progresser la policy au-dela du plateau observe contre
+`HeuristicPlayer` seul (+5.79 -> +9.76, quasiment double). Piste suivante
+naturelle : repeter l'operation (self-play contre une copie figee de
+`exp_selfplay_frozen100k/final.pt`) pour voir si le gain se reproduit ou si un
+nouveau plateau apparait.
