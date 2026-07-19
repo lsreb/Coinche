@@ -1,19 +1,22 @@
 """Entraine par REINFORCE une policy de jeu de la carte pour une equipe entiere
-(memes poids sur les deux sieges partenaires), face a une equipe HeuristicPlayer.
-Les encheres restent geree par HeuristicPlayer des deux cotes (RLPlayer en herite) :
-seul le choix de la carte a jouer, une fois le contrat fixe, est appris.
+(memes poids sur les deux sieges partenaires), face a un adversaire aux sieges
+1/3 -- soit HeuristicPlayer (par defaut), soit une policy figee (self-play,
+voir --opponent). Les encheres restent gerees par HeuristicPlayer des deux
+cotes (RLPlayer en herite) : seul le choix de la carte a jouer, une fois le
+contrat fixe, est appris.
 
 Le reward utilise pour la mise a jour REINFORCE n'est pas le reward brut de la
 donne (difference de points d'equipe) mais l'ecart avec un contre-factuel :
 la meme donne (memes mains, meme donneur, meme contrat garanti puisque les
-encheres sont deterministes) rejouee avec HeuristicPlayer aux 4 sieges
+encheres sont deterministes) rejouee avec l'adversaire courant aux 4 sieges
 (remarques_rl.md point 3). Ca isole la contribution du jeu de la policy du
 hasard de la donne, un signal bien moins bruite qu'une simple moyenne mobile
-globale. Voir --no-heuristic-baseline pour revenir au reward brut.
+globale. Voir --no-counterfactual-baseline pour revenir au reward brut.
 
 Usage:
     python train.py --episodes 5000 --eval-every 200
     python train.py --episodes 2000 --load poids.pt --save poids.pt
+    python train.py --load poids.pt --opponent poids.pt --episodes 100000  # self-play vs copie figee
 """
 import argparse
 import os
@@ -24,17 +27,28 @@ from coinche.game import GameEngine
 from coinche.players import RLPlayer, HeuristicPlayer
 from coinche.rl_agent import NeuralPolicy, torch
 
-# L'equipe RL controle les sieges 0 et 2 (partenaires) ; 1 et 3 restent heuristiques.
+# L'equipe RL controle les sieges 0 et 2 (partenaires) ; 1 et 3 sont l'adversaire.
 RL_SEATS = (0, 2)
 
 
+def _default_opponent(name):
+    return HeuristicPlayer(name)
+
+
+# Fabrique de joueur pour les sieges adversaires (1/3, et les 4 sieges du
+# contre-factuel) -- HeuristicPlayer par defaut, reassignee dans main() vers un
+# RLPlayer avec policy figee si --opponent pointe vers des poids sauvegardes.
+_opponent_factory = _default_opponent
+
+
 def run_episode(policy, dealer):
-    """Joue une donne avec la policy RL aux sieges 0/2. Retourne le reward brut
+    """Joue une donne avec la policy RL aux sieges 0/2, contre l'adversaire
+    courant (_opponent_factory) aux sieges 1/3. Retourne le reward brut
     (difference de points d'equipe, cf. `evaluate`) et les mains distribuees
-    (pour rejouer eventuellement la meme donne en contre-factuel heuristique)."""
+    (pour rejouer eventuellement la meme donne en contre-factuel)."""
     players = [
-        RLPlayer('P0', policy), HeuristicPlayer('P1'),
-        RLPlayer('P2', policy), HeuristicPlayer('P3'),
+        RLPlayer('P0', policy), _opponent_factory('P1'),
+        RLPlayer('P2', policy), _opponent_factory('P3'),
     ]
     engine = GameEngine(players, dealer=dealer)
     engine.deal()
@@ -44,15 +58,19 @@ def run_episode(policy, dealer):
     return reward, engine.history['deal_hands']
 
 
-def heuristic_counterfactual_reward(hands, dealer):
+def counterfactual_reward(hands, dealer):
     """Rejoue exactement la meme donne (memes mains, meme donneur) avec
-    HeuristicPlayer aux 4 sieges : reference bas-bruit pour isoler la
-    contribution du jeu de la policy par rapport a un jeu heuristique de
-    reference sur les memes cartes (remarques_rl.md point 3), plutot que de se
-    comparer a une moyenne globale que le hasard de la donne rend bruitee.
-    HeuristicPlayer.bid() n'a aucun alea : le contrat reproduit est garanti
-    identique a celui de la donne RL d'origine."""
-    players = [HeuristicPlayer(f'H{i}') for i in range(4)]
+    l'adversaire courant (_opponent_factory) aux 4 sieges : reference bas-bruit
+    pour isoler la contribution du jeu de la policy par rapport a ce que
+    l'adversaire actuel aurait fait sur les memes cartes (remarques_rl.md point
+    3), plutot que de se comparer a une moyenne globale que le hasard de la
+    donne rend bruitee. Le contre-factuel suit toujours l'adversaire reel (pas
+    fige sur Heuristic) : en self-play contre une policy figee, comparer a un
+    Heuristic qui n'est plus l'adversaire joue melangerait deux signaux
+    incoherents. bid() (Heuristic comme RLPlayer, qui l'herite tel quel) n'a
+    aucun alea : le contrat reproduit est garanti identique a celui de la
+    donne d'origine."""
+    players = [_opponent_factory(f'H{i}') for i in range(4)]
     engine = GameEngine(players, dealer=dealer)
     engine.deal(hands=hands)
     engine.run_auction()
@@ -61,8 +79,8 @@ def heuristic_counterfactual_reward(hands, dealer):
 
 
 def evaluate(policy, n_games, start_dealer=0):
-    """Evalue en mode glouton : reward moyenne (vs heuristique) et taux de
-    victoire (fraction des donnes ou l'equipe RL marque plus que l'adversaire)."""
+    """Evalue en mode glouton : reward moyenne (vs l'adversaire courant) et taux
+    de victoire (fraction des donnes ou l'equipe RL marque plus que l'adversaire)."""
     was_recording = policy.record
     policy.record = False
     total = 0.0
@@ -100,9 +118,13 @@ def main():
     parser.add_argument('--entropy-beta', type=float, default=0.01,
                          help="Poids du bonus d'entropie dans la loss REINFORCE (force l'exploration, "
                               "utile en particulier apres un --load d'une policy pre-entrainee par imitation).")
-    parser.add_argument('--no-heuristic-baseline', action='store_true',
-                         help="Desactive le contre-factuel heuristique (remarques_rl.md point 3) : revient a "
+    parser.add_argument('--no-counterfactual-baseline', action='store_true',
+                         help="Desactive le contre-factuel (remarques_rl.md point 3) : revient a "
                               "utiliser le reward brut directement, avec la seule baseline EMA de NeuralPolicy.")
+    parser.add_argument('--opponent', default='heuristic',
+                         help="Adversaire aux sieges 1/3 (et pour le contre-factuel) : 'heuristic' (defaut) "
+                              "ou un chemin vers des poids NeuralPolicy sauvegardes, pour du self-play contre "
+                              "une copie figee (jeu glouton, jamais mise a jour).")
     parser.add_argument('--entropy-decay', choices=['none', 'invsqrt', 'inv'], default='none',
                          help="Decroissance du bonus d'entropie au fil des episodes : 'none' (constant), "
                               "'invsqrt' (beta/sqrt(ep)), 'inv' (beta/ep).")
@@ -126,6 +148,14 @@ def main():
         random.seed(args.seed)
         torch.manual_seed(args.seed)
 
+    if args.opponent != 'heuristic':
+        frozen = NeuralPolicy()
+        frozen.load(args.opponent)
+        frozen.record = False  # glouton, jamais mis a jour (pas d'appel a .update())
+        global _opponent_factory
+        _opponent_factory = lambda name: RLPlayer(name, frozen)
+        print('adversaire fige charge depuis', args.opponent)
+
     policy = NeuralPolicy(lr=args.lr, entropy_beta=args.entropy_beta)
     if args.load:
         policy.load(args.load)
@@ -142,13 +172,13 @@ def main():
         policy.entropy_beta = entropy_beta_for_episode(args.entropy_beta, global_ep, args.entropy_decay)
         dealer = global_ep % 4
         reward, hands = run_episode(policy, dealer=dealer)
-        if args.no_heuristic_baseline:
+        if args.no_counterfactual_baseline:
             training_reward = reward
         else:
-            training_reward = reward - heuristic_counterfactual_reward(hands, dealer=dealer)
+            training_reward = reward - counterfactual_reward(hands, dealer=dealer)
         policy.update(training_reward)
 
-        window.append(reward)  # reward brut, pour un suivi interpretable (vs heuristique)
+        window.append(reward)  # reward brut, pour un suivi interpretable (vs l'adversaire)
         adv_window.append(training_reward)  # signal reellement utilise pour la mise a jour
         if len(window) > 200:
             window.pop(0)
