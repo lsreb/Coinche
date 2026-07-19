@@ -4,6 +4,24 @@
 `HeuristicPlayer` (`pretrain.py --games 5000 --epochs 20 --seed 0`), point de
 depart commun a toutes les experiences ci-dessous.
 
+**Note methodologique (corrigee)** : jusqu'a la comparaison `exp_pool_350k`
+ci-dessous, `eval_policy.py` reseedait `random` avant chaque checkpoint puis
+laissait chaque partie se dealer fraichement, en supposant que ca suffisait a
+donner les memes donnes a tous les checkpoints. Faux au-dela des tout premiers
+essais : des qu'un checkpoint joue une carte differente d'un autre,
+`HeuristicPlayer._choose_defausse_suit()` (seul point d'alea de
+`HeuristicPlayer` en jeu, hors encheres) consomme un nombre different de
+tirages `random`, et tout le `random` global part sur une trajectoire
+differente pour le reste de la boucle -- verifie empiriquement : mains
+divergentes des la 4e partie sur 100. Toutes les tables `eval_avg`/`win_rate`
+**avant** la section `exp_pool_350k` viennent donc d'une comparaison en
+realite non appariee (plus bruitee que ce qui est ecrit a l'epoque), meme si
+le classement qualitatif reste corrobore par la comparaison finale corrigee.
+`eval_policy.py` genere maintenant les N donnes une seule fois (independamment
+de tout checkpoint, en filtrant celles qui provoqueraient une redonne interne
+silencieuse, cf. game.py:139-143) puis les rejoue a l'identique via
+`deal(hands=...)` pour chaque checkpoint -- une vraie comparaison appariee.
+
 ## Decroissance du bonus d'entropie (premiere serie)
 
 Deux runs de fine-tuning REINFORCE (`train.py --load imit.pt --episodes 100000
@@ -40,7 +58,11 @@ et des donnes differentes a chaque reprise). Seuls `final.pt` (poids a 100k) et
 intermediaires ont ete supprimes apres analyse.
 
 Ablation isolant l'effet de chaque facteur (2x2, 20k episodes, seed=5,
-comparaison sur les memes 1500 donnes via `eval_policy.py --games 1500`) :
+comparaison sur les memes 1500 donnes via `eval_policy.py --games 1500` --
+ancienne methode non appariee, cf. note methodologique en tete de fichier ;
+l'ecart lr vs entropie observe ici est trop large pour etre remis en cause,
+mais les valeurs precises sont a prendre avec plus de marge que ce qui est
+ecrit) :
 
 |                    | beta=0.02 (haut) | beta=0.002 (bas) |
 |--------------------|-----------------:|------------------:|
@@ -79,7 +101,8 @@ mesurent la progression **contre la copie figee** (proche de 50%, attendu vu
 que les deux partent des memes poids), pas contre `HeuristicPlayer`.
 
 Resultat, mesure sur la vraie reference (`eval_policy.py --games 1500` vs
-`HeuristicPlayer`, memes donnes que les tableaux precedents) :
+`HeuristicPlayer`, ancienne methode non appariee -- cf. note methodologique en
+tete de fichier) :
 
 | Policy | eval_avg(1500) | win_rate |
 |---|---:|---:|
@@ -103,16 +126,19 @@ absolue 200001-250000, seed=9) a partir de `exp_selfplay_frozen100k/final.pt`
 ce round et n'a pas ete supprime).
 
 Contrairement au round 1, **pas de progression nette sur ce segment** : eval
-robuste (1500 parties vs `HeuristicPlayer`, memes donnes) ep200000=+9.76,
+robuste (1500 parties vs `HeuristicPlayer`, memes donnes, ancienne methode non
+appariee -- cf. note methodologique en tete de fichier) ep200000=+9.76,
 ep210000=+8.49, ep220000=+6.33, ep230000=+15.34, ep240000=+4.23,
 ep250000(`final.pt`)=+5.78 -- oscillation sans tendance, le pic a ep230000
 s'est avere etre en grande partie du bruit d'evaluation (retombe a +8.71 sur
 un reeval a 10000 parties, contre +6.51 pour `final.pt` sur le meme
 echantillon -- ecart de ~2 points, sous l'erreur standard mesuree a ce n
 (ecart-type empirique du reward par donne = 124 points, soit SE~1.25 a
-n=10000). Les deux checkpoints sont statistiquement indiscernables ; `final.pt`
-est garde comme point final car c'est l'arret naturel de l'entrainement, pas
-un choix cherry-picke sur l'eval.
+n=10000 -- ce calcul de SE suppose un echantillon correctement apparie, ce qui
+n'etait pas encore le cas ici : l'ecart reel est probablement encore moins
+significatif que ce chiffre). Les deux checkpoints restent statistiquement
+indiscernables ; `final.pt` est garde comme point final car c'est l'arret
+naturel de l'entrainement, pas un choix cherry-picke sur l'eval.
 
 Interpretation : un round de self-play contre une copie figee donne un vrai
 gain (round 1), mais continuer contre la **meme** copie figee au-dela ne
@@ -122,10 +148,13 @@ comme observe avec `HeuristicPlayer` dans `exp_lowlr_lowent`. Piste suivante :
 rafraichir l'adversaire fige a chaque round (curriculum type fictitious
 self-play) plutot que de repeter un round contre le meme snapshot.
 
-**Bilan de la lignee complete** (`eval_policy.py --games 1500`, vs
-`HeuristicPlayer`) : `imit.pt` -3.54 -> `exp_lowlr_lowent` +5.79 ->
+**Bilan de la lignee jusqu'ici** (`eval_policy.py --games 1500`, vs
+`HeuristicPlayer`, ancienne methode non appariee -- cf. note methodologique en
+tete de fichier) : `imit.pt` -3.54 -> `exp_lowlr_lowent` +5.79 ->
 `exp_selfplay_frozen100k` +9.76 -> `exp_selfplay_frozen150k` +5.78 (dans le
 bruit du round precedent, pas une regression averee vu la marge d'erreur).
+Voir la section `exp_pool_350k` ci-dessous pour le bilan complet avec la
+comparaison appariee corrigee.
 
 ## `exp_pool_350k/` : entrainement contre un pool d'adversaires (point final retenu)
 
@@ -145,20 +174,23 @@ pool.
 100k episodes (numerotation absolue 250001-350000, seed=10) a partir de
 `exp_selfplay_frozen150k/final.pt`. Seuls `final.pt` et `log.txt` sont gardes.
 
-Resultat (`eval_policy.py --games 10000` vs `HeuristicPlayer`, memes donnes,
-precision bien meilleure qu'a 1500 : ecart-type empirique du reward mesure a
-124/donne, donc SE~1.25 a n=10000) :
+Resultat (`eval_policy.py --games 10000` vs `HeuristicPlayer`, **10000 donnes
+generees une seule fois et rejouees a l'identique pour chaque checkpoint** --
+premiere comparaison de cette lignee avec un vrai appariement, cf. note
+methodologique en tete de fichier) :
 
 | Policy | eval_avg(10000) | win_rate |
 |---|---:|---:|
-| `imit.pt` | -3.42 | 48.5% |
-| `exp_lowlr_lowent` | +3.44 | 51.0% |
-| `exp_selfplay_frozen100k` | +4.09 | 50.9% |
-| `exp_selfplay_frozen150k` | +5.95 | 52.0% |
-| **`exp_pool_350k/final.pt`** | **+9.06** | **53.0%** |
+| `imit.pt` | -1.52 | 49.2% |
+| `heuristic` (miroir) | +3.49 | 50.8% |
+| `exp_lowlr_lowent` | +5.83 | 51.5% |
+| `exp_selfplay_frozen100k` | +8.07 | 52.1% |
+| `exp_selfplay_frozen150k` | +8.68 | 52.9% |
+| **`exp_pool_350k/final.pt`** | **+10.43** | **53.0%** |
 
-=> toute la lignee progresse desormais de facon monotone, et le pool est la
-meilleure etape depuis le debut : +3.1 points par rapport au precedent
-meilleur (`exp_selfplay_frozen150k`), un ecart net vu la marge d'erreur a ce
-n. Confirme l'hypothese : varier l'adversaire evite le plafonnement observe a
-chaque fois qu'un round s'acharnait contre une seule reference fixe.
+=> toute la lignee progresse toujours de facon monotone une fois la
+comparaison correctement appariee, et le pool reste la meilleure etape depuis
+le debut. Le classement qualitatif obtenu avec l'ancienne methode (non
+appariee) est confirme ; seules les valeurs absolues different (nouveau tirage
+de donnes, filtrage different) et ne sont pas directement comparables aux
+tables des sections precedentes.
