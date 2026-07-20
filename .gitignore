@@ -8,6 +8,7 @@ game_history_test.json
 game_history_viewer.html
 game_test.json
 CLAUDE.md
+rl_experiments_v2/exp_growing_pool/*_checkpoints/
 
 # C extensions
 *.so
@@ -222,3 +223,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Exceptions a la regle *.log generale : logs d'experience RL a garder
+!rl_experiments_v2/exp_growing_pool/*.log
+!rl_experiments_v2/exp_growing_pool_orchestrator.log

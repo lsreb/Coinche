@@ -1,0 +1,31 @@
+=== Segment 1/10 : episodes 1-50000 (pool a 1 membres) ===
+  pool: heuristic
+  segment 1 termine en 604s, poids dans rl_experiments_v2/exp_growing_pool/seg_50000.pt
+=== Segment 2/10 : episodes 50001-100000 (pool a 2 membres) ===
+  pool: heuristic,rl_experiments_v2/exp_growing_pool/seg_50000.pt
+  segment 2 termine en 761s, poids dans rl_experiments_v2/exp_growing_pool/seg_100000.pt
+=== Segment 3/10 : episodes 100001-150000 (pool a 3 membres) ===
+  pool: heuristic,rl_experiments_v2/exp_growing_pool/seg_50000.pt,rl_experiments_v2/exp_growing_pool/seg_100000.pt
+  segment 3 termine en 879s, poids dans rl_experiments_v2/exp_growing_pool/seg_150000.pt
+=== Segment 4/10 : episodes 150001-200000 (pool a 4 membres) ===
+  pool: heuristic,rl_experiments_v2/exp_growing_pool/seg_50000.pt,rl_experiments_v2/exp_growing_pool/seg_100000.pt,rl_experiments_v2/exp_growing_pool/seg_150000.pt
+  segment 4 termine en 911s, poids dans rl_experiments_v2/exp_growing_pool/seg_200000.pt
+=== Segment 5/10 : episodes 200001-250000 (pool a 5 membres) ===
+  pool: heuristic,rl_experiments_v2/exp_growing_pool/seg_50000.pt,rl_experiments_v2/exp_growing_pool/seg_100000.pt,rl_experiments_v2/exp_growing_pool/seg_150000.pt,rl_experiments_v2/exp_growing_pool/seg_200000.pt
+  segment 5 termine en 883s, poids dans rl_experiments_v2/exp_growing_pool/seg_250000.pt
+=== Segment 6/10 : episodes 250001-300000 (pool a 6 membres) ===
+  pool: heuristic,rl_experiments_v2/exp_growing_pool/seg_50000.pt,rl_experiments_v2/exp_growing_pool/seg_100000.pt,rl_experiments_v2/exp_growing_pool/seg_150000.pt,rl_experiments_v2/exp_growing_pool/seg_200000.pt,rl_experiments_v2/exp_growing_pool/seg_250000.pt
+  segment 6 termine en 935s, poids dans rl_experiments_v2/exp_growing_pool/seg_300000.pt
+=== Segment 7/10 : episodes 300001-350000 (pool a 7 membres) ===
+  pool: heuristic,rl_experiments_v2/exp_growing_pool/seg_50000.pt,rl_experiments_v2/exp_growing_pool/seg_100000.pt,rl_experiments_v2/exp_growing_pool/seg_150000.pt,rl_experiments_v2/exp_growing_pool/seg_200000.pt,rl_experiments_v2/exp_growing_pool/seg_250000.pt,rl_experiments_v2/exp_growing_pool/seg_300000.pt
+  segment 7 termine en 906s, poids dans rl_experiments_v2/exp_growing_pool/seg_350000.pt
+=== Segment 8/10 : episodes 350001-400000 (pool a 8 membres) ===
+  pool: heuristic,rl_experiments_v2/exp_growing_pool/seg_50000.pt,rl_experiments_v2/exp_growing_pool/seg_100000.pt,rl_experiments_v2/exp_growing_pool/seg_150000.pt,rl_experiments_v2/exp_growing_pool/seg_200000.pt,rl_experiments_v2/exp_growing_pool/seg_250000.pt,rl_experiments_v2/exp_growing_pool/seg_300000.pt,rl_experiments_v2/exp_growing_pool/seg_350000.pt
+  segment 8 termine en 922s, poids dans rl_experiments_v2/exp_growing_pool/seg_400000.pt
+=== Segment 9/10 : episodes 400001-450000 (pool a 9 membres) ===
+  pool: heuristic,rl_experiments_v2/exp_growing_pool/seg_50000.pt,rl_experiments_v2/exp_growing_pool/seg_100000.pt,rl_experiments_v2/exp_growing_pool/seg_150000.pt,rl_experiments_v2/exp_growing_pool/seg_200000.pt,rl_experiments_v2/exp_growing_pool/seg_250000.pt,rl_experiments_v2/exp_growing_pool/seg_300000.pt,rl_experiments_v2/exp_growing_pool/seg_350000.pt,rl_experiments_v2/exp_growing_pool/seg_400000.pt
+  segment 9 termine en 939s, poids dans rl_experiments_v2/exp_growing_pool/seg_450000.pt
+=== Segment 10/10 : episodes 450001-500000 (pool a 10 membres) ===
+  pool: heuristic,rl_experiments_v2/exp_growing_pool/seg_50000.pt,rl_experiments_v2/exp_growing_pool/seg_100000.pt,rl_experiments_v2/exp_growing_pool/seg_150000.pt,rl_experiments_v2/exp_growing_pool/seg_200000.pt,rl_experiments_v2/exp_growing_pool/seg_250000.pt,rl_experiments_v2/exp_growing_pool/seg_300000.pt,rl_experiments_v2/exp_growing_pool/seg_350000.pt,rl_experiments_v2/exp_growing_pool/seg_400000.pt,rl_experiments_v2/exp_growing_pool/seg_450000.pt
+  segment 10 termine en 947s, poids dans rl_experiments_v2/exp_growing_pool/seg_500000.pt
+Orchestration terminee : 10 segments, pool final a 11 membres (heuristic + 10 snapshots).

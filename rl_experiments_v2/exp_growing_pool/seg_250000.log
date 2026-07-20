@@ -1,0 +1,27 @@
+adversaire fige charge depuis rl_experiments_v2/exp_growing_pool/seg_50000.pt
+adversaire fige charge depuis rl_experiments_v2/exp_growing_pool/seg_100000.pt
+adversaire fige charge depuis rl_experiments_v2/exp_growing_pool/seg_150000.pt
+adversaire fige charge depuis rl_experiments_v2/exp_growing_pool/seg_200000.pt
+poids charges depuis rl_experiments_v2/exp_growing_pool/seg_200000.pt
+episode 205000  train_avg=  +13.1  adv_avg=   +2.4  eval_avg(500)=  +30.6  win_rate= 56.8%  entropy_beta=0.0020  baseline=   +3.5  (91.4s)
+  picks: heuristic:847x(wr=0.52)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:1138x(wr=0.59)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:1106x(wr=0.56)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:865x(wr=0.58)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:1044x(wr=0.46)
+episode 210000  train_avg=  -20.7  adv_avg=  -12.2  eval_avg(500)=  +22.8  win_rate= 55.2%  entropy_beta=0.0020  baseline=  -10.3  (176.8s)
+  picks: heuristic:2147x(wr=0.51)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:2282x(wr=0.48)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:1994x(wr=0.43)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:1505x(wr=0.54)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:2072x(wr=0.50)
+episode 215000  train_avg=   -7.0  adv_avg=  +11.2  eval_avg(500)=  +20.9  win_rate= 54.2%  entropy_beta=0.0020  baseline=  -42.5  (262.3s)
+  picks: heuristic:3152x(wr=0.58)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:3187x(wr=0.45)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:2871x(wr=0.53)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:2425x(wr=0.56)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:3365x(wr=0.51)
+episode 220000  train_avg=  +26.2  adv_avg=   +1.3  eval_avg(500)=   +9.3  win_rate= 52.4%  entropy_beta=0.0020  baseline=  -10.2  (352.1s)
+  picks: heuristic:3606x(wr=0.49)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:4513x(wr=0.51)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:3963x(wr=0.57)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:3347x(wr=0.60)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:4571x(wr=0.47)
+episode 225000  train_avg=  +18.6  adv_avg=  +10.2  eval_avg(500)=  +23.8  win_rate= 54.8%  entropy_beta=0.0020  baseline=  -17.3  (442.0s)
+  picks: heuristic:4349x(wr=0.54)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:5435x(wr=0.59)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:5109x(wr=0.51)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:4189x(wr=0.56)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:5918x(wr=0.57)
+episode 230000  train_avg=  +26.2  adv_avg=   +2.2  eval_avg(500)=  +26.9  win_rate= 55.4%  entropy_beta=0.0020  baseline=  -24.7  (530.3s)
+  picks: heuristic:5110x(wr=0.57)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:6481x(wr=0.60)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:6249x(wr=0.48)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:4974x(wr=0.50)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:7186x(wr=0.55)
+episode 235000  train_avg=  +12.6  adv_avg=   -0.8  eval_avg(500)=   +1.2  win_rate= 49.8%  entropy_beta=0.0020  baseline=  +24.5  (619.2s)
+  picks: heuristic:5927x(wr=0.48)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:7340x(wr=0.49)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:7421x(wr=0.62)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:6113x(wr=0.50)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:8199x(wr=0.55)
+episode 240000  train_avg=   -7.5  adv_avg=  +30.2  eval_avg(500)=  +19.1  win_rate= 54.2%  entropy_beta=0.0020  baseline=  +50.2  (703.6s)
+  picks: heuristic:7388x(wr=0.54)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:8432x(wr=0.47)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:7974x(wr=0.48)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:7204x(wr=0.47)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:9002x(wr=0.48)
+episode 245000  train_avg=   -3.4  adv_avg=  -24.8  eval_avg(500)=  +11.1  win_rate= 52.4%  entropy_beta=0.0020  baseline=  -21.5  (792.1s)
+  picks: heuristic:8390x(wr=0.48)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:9553x(wr=0.51)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:8926x(wr=0.53)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:8084x(wr=0.53)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:10047x(wr=0.52)
+episode 250000  train_avg=  +16.0  adv_avg=   -9.7  eval_avg(500)=  +22.9  win_rate= 54.8%  entropy_beta=0.0020  baseline=  -14.7  (881.2s)
+  picks: heuristic:9516x(wr=0.52)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:10315x(wr=0.53)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:9794x(wr=0.52)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:8881x(wr=0.49)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:11494x(wr=0.50)
+poids sauvegardes dans rl_experiments_v2/exp_growing_pool/seg_250000.pt
+PFSP picks total: heuristic:9516x(wr=0.52)  rl_experiments_v2/exp_growing_pool/seg_50000.pt:10315x(wr=0.53)  rl_experiments_v2/exp_growing_pool/seg_100000.pt:9794x(wr=0.52)  rl_experiments_v2/exp_growing_pool/seg_150000.pt:8881x(wr=0.49)  rl_experiments_v2/exp_growing_pool/seg_200000.pt:11494x(wr=0.50)

@@ -34,3 +34,58 @@ Reglages retenus (discussion remarques_rl.md) :
 
 Le detail (nombre de segments effectues, resultats) sera documente ici au
 fur et a mesure.
+
+### Resultats : run complet 500k (10 segments de 50k, 2026-07-20)
+
+Evaluation avec `eval_policy.py` (donnes fixes, comparaison appariee, 3000
+parties, seed=42) de `heuristic`, `imit.pt` et chaque checkpoint de segment
+contre `HeuristicPlayer` :
+
+| Checkpoint | avg vs heuristic | win_rate | delta vs imit.pt |
+|---|---|---|---|
+| heuristic (reference) | +2.4 +/- 8.3 | 50.7% | -- |
+| imit.pt | +0.2 +/- 8.2 | 50.3% | -- |
+| seg_50000 | +14.6 | 53.1% | +14.4 (signif.) |
+| seg_100000 | +14.2 | 53.3% | +14.0 (signif.) |
+| seg_150000 | +16.4 | 53.7% | +16.2 (signif.) |
+| seg_200000 | +21.1 | 54.7% | +21.0 (signif.) |
+| seg_250000 | +24.4 | 55.1% | +24.2 (signif.) |
+| **seg_300000** | **+26.0** | **55.7%** | **+25.8 (pic)** |
+| seg_350000 | +18.1 | 54.0% | +17.9 (chute signif. vs seg_300000 : -7.95) |
+| seg_400000 | +22.6 | 54.9% | +22.4 |
+| seg_450000 | +23.7 | 55.1% | +23.5 |
+| seg_500000 (final) | +23.5 | 55.0% | +23.3 |
+
+IC95% ~ +/-7 a 8 points sur ces deltas (std empirique ~228 points/donne,
+n=3000 -- bien plus eleve que les ~124 de la lignee v1 pre-regle-5 : la
+regle 5 introduit des ecarts beaucoup plus violents, capot 500, coinche
+double, chute asymetrique).
+
+**Constats :**
+- `imit.pt` seul ne bat pas `heuristic` (attendu, c'est un clone de
+  l'heuristique).
+- Le **segment 1** (50k episodes, uniquement vs heuristic, pool a 1 membre)
+  capture a lui seul le plus gros du gain (+14.4, hautement significatif) --
+  le saut le plus net de toute l'experience.
+- A partir du segment 2 (pool grandissant + PFSP actif), les progres
+  segment-a-segment sont presque tous **non significatifs** (bruit de +/-6
+  a 8 points) : pas de progression fiable et reguliere une fois le pool en
+  jeu.
+- Pic a `seg_300000` (episode 300k), puis chute significative a
+  `seg_350000` (-7.95, seul delta segment-a-segment vraiment significatif en
+  negatif) -- instabilite reelle, pas juste du bruit d'evaluation.
+- Le point final `seg_500000` est significativement meilleur que
+  `seg_50000` (+8.8) et que `imit.pt` (+23.3) -- il y a donc un progres net
+  sur l'ensemble du run.
+- Mais `seg_500000` n'est **pas** significativement meilleur que
+  `seg_200000` (+2.3, non signif.) et est meme legerement (non
+  significativement) en dessous du pic `seg_300000` (-2.6).
+
+**Interpretation :** la quasi-totalite du gain net exploitable s'est jouee
+dans les ~200-300 premiers k episodes ; les 200-300k derniers (segments 5 a
+10, pool passant de 5 a 11 membres) n'ont pas produit d'amelioration
+statistiquement detectable, avec meme un accroc net vers 350k. C'est mieux
+que les plateaux catastrophiques de `exp_selfplay_frozen150k`/
+`exp_pool_350k` (pas d'effondrement), mais l'hypothese "pool grandissant +
+PFSP evite le plafonnement" n'est pas clairement confirmee par ces chiffres
+au-dela de ~300k.
