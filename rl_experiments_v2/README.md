@@ -189,20 +189,60 @@ empirique) -- necessiterait plusieurs seeds pour conclure fermement.
 Architecture (`ValueNet` independant, `pretrain_value.py --load-value`) et
 checkpoints conserves pour reprendre cette piste plus tard si besoin.
 
+### Ablation `--lr`
+
+Repartant de `epochs8` (critic a init aleatoire, la meilleure config avant
+cette ablation), balayage de `--lr` autour de la valeur reprise de REINFORCE
+(1e-4) :
+
+| `--lr` | eval_avg(3000) | win_rate |
+|---|---|---|
+| 8e-4 | -13.96 | 48.1% |
+| 1e-4 (baseline, = REINFORCE) | +9.75 | 52.2% |
+| **3e-5** | **+17.60** | **53.8%** |
+| 1e-5 | +10.10 | 52.2% |
+
+Relation **non monotone** : `8e-4` est destructeur (entropie qui s'effondre
+progressivement de 0.19 a 0.05 au fil du run, la policy converge trop vite
+vers une reponse mediocre) ; `1e-5` retombe au niveau du baseline (entropie
+stable, mais probablement sous-appris -- pas assez de mouvement cumule sur
+50k episodes avec des pas aussi petits) ; `3e-5` est un point sweet-spot net,
+qui **depasse REINFORCE** (`seg_50000`, +15.22) au meme budget de 50k
+episodes -- premiere config PPO de la session a y parvenir.
+
+**Mise en garde methodologique (cf. aussi remarques_rl.md point 5) :** cette
+comparaison reste asymetrique. `lr=1e-4` pour REINFORCE (repris tel quel dans
+`run_growing_pool.py`) vient de l'ablation lr/entropie de la lignee v1
+(`rl_experiments/README.md`), faite **avant** la correction de la regle 5 du
+scoring -- qui a fait passer l'ecart-type empirique du reward de ~124 a ~228
+points/donne (signal bien plus bruite depuis). Rien ne garantit que ce lr
+reste optimal pour REINFORCE sous la nouvelle echelle de reward, exactement
+comme on vient de trouver que le lr "repris" de REINFORCE n'etait pas optimal
+pour PPO (3e-5 nettement meilleur que 1e-4). Conclure que "PPO bat REINFORCE"
+sur la base de ce tableau serait premature tant que REINFORCE n'a pas recu la
+meme ablation lr/entropie sous le signal post-regle-5 -- a faire avant toute
+conclusion definitive.
+
 ### Resultats consolides (`eval_policy.py`, 3000 parties, seed=42)
 
 | Checkpoint | eval_avg(3000) | win_rate |
 |---|---|---|
-| seg_50000 (REINFORCE, reference) | +15.22 | 53.2% |
-| **exp_ppo_round1_epochs8** (meilleur PPO a ce jour) | **+9.75** | 52.2% |
+| **exp_ppo_round1_lr3e-5** (meilleur PPO a ce jour) | **+17.60** | **53.8%** |
+| seg_50000 (REINFORCE, reference -- lr non revalide, voir ci-dessus) | +15.22 | 53.2% |
+| exp_ppo_round1_lr1e-5 | +10.10 | 52.2% |
+| exp_ppo_round1_epochs8 (lr=1e-4) | +9.75 | 52.2% |
 | exp_ppo_round1_epochs4 | +7.84 | 51.8% |
 | heuristic (reference bruit structurel) | +7.38 | 51.8% |
 | exp_ppo_round1_valuepretrain (critic pre-entraine, cible buggee) | +4.92 | 51.2% |
 | exp_ppo_round1_valuepretrain_v3 (critic pre-entraine, cible corrigee) | -0.34 | 50.3% |
 | imit.pt (point de depart) | -3.08 | 49.6% |
+| exp_ppo_round1_lr8e-4 | -13.96 | 48.1% |
 
-A 50k episodes et `--opponent heuristic` seul, PPO n'a pas encore rattrape
-REINFORCE au meme budget. Prochaine etape : tuning d'autres hyperparametres
-(`lr`, `clip-eps`, `batch-episodes`) en repartant de `epochs8` (critic a
-init aleatoire, la meilleure config a ce jour), sans pre-entrainement du
-critic pour l'instant.
+A 50k episodes et `--opponent heuristic` seul, PPO (`lr=3e-5`) depasse pour
+la premiere fois REINFORCE au meme budget -- mais voir la mise en garde
+methodologique ci-dessus avant d'en tirer une conclusion ferme. Prochaines
+etapes possibles : refaire l'ablation lr/entropie sur REINFORCE sous le
+signal post-regle-5 (comparaison equitable) ; affiner autour de `lr=3e-5`
+(ex: 2e-5, 4e-5) ou d'autres hyperparametres (`clip-eps`, `batch-episodes`) ;
+toujours sans pre-entrainement du critic pour l'instant (piste en pause,
+cf. ci-dessus).
