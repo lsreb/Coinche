@@ -67,8 +67,9 @@ if torch is not None:
         """Interface compatible RLPlayer/run_episode/evaluate (choose_card,
         record, save, load) pour reutiliser telles quelles les fonctions de
         train.py. `record=True` (par defaut) echantillonne et memorise
-        (etat, action, log-prob, valeur) dans `self._traj` ; `record=False`
-        (evaluation) joue en glouton (argmax) sans rien memoriser."""
+        (etat, action, log-prob, valeur, masque des coups legaux) dans
+        `self._traj` ; `record=False` (evaluation) joue en glouton (argmax)
+        sans rien memoriser."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
                      entropy_coef=0.01, epochs=4, minibatch_size=64):
             self.device = device
@@ -80,7 +81,7 @@ if torch is not None:
             self.epochs = epochs
             self.minibatch_size = minibatch_size
             self.record = True
-            self._traj = []       # (etat, action_idx, log_prob, valeur) de la donne en cours
+            self._traj = []       # (etat, action_idx, log_prob, valeur, masque) de la donne en cours
             self._episodes = []   # [(traj, retour)] accumules depuis la derniere update_batch()
 
         def choose_card(self, player, legal, leader, trick, trump):
@@ -96,7 +97,8 @@ if torch is not None:
                 dist = torch.distributions.Categorical(logits=masked_logits)
                 action_idx = dist.sample()
                 self._traj.append((x.detach(), int(action_idx.item()),
-                                    dist.log_prob(action_idx).detach(), value.detach()))
+                                    dist.log_prob(action_idx).detach(), value.detach(),
+                                    mask.detach()))
             else:
                 action_idx = torch.argmax(masked_logits)
 
@@ -125,13 +127,14 @@ if torch is not None:
             rien n'etait accumule."""
             if not self._episodes:
                 return None
-            states, actions, old_log_probs, old_values, returns = [], [], [], [], []
+            states, actions, old_log_probs, old_values, masks, returns = [], [], [], [], [], []
             for traj, reward in self._episodes:
-                for x, action_idx, old_lp, old_v in traj:
+                for x, action_idx, old_lp, old_v, mask in traj:
                     states.append(x)
                     actions.append(action_idx)
                     old_log_probs.append(old_lp)
                     old_values.append(old_v)
+                    masks.append(mask)
                     returns.append(reward)
             self._episodes = []
 
@@ -139,8 +142,14 @@ if torch is not None:
             actions = torch.tensor(actions, dtype=torch.long, device=self.device)
             old_log_probs = torch.stack(old_log_probs)
             old_values = torch.stack(old_values)
+            masks = torch.stack(masks)
             returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
             advantages = returns - old_values
+            # Echelle des retours bruts (~centaines de points, cf. rl_experiments_v2/README.md) :
+            # sans ca, value_loss (MSE sur ces retours) domine policy_loss (sur avantage normalise,
+            # O(1)) de plusieurs ordres de grandeur dans `loss` ci-dessous, et le gradient qui
+            # traverse le tronc partage `fc1` ne sert plus qu'a minimiser l'erreur de valeur.
+            return_scale = returns.std() + 1e-6
             if advantages.numel() > 1:
                 advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
 
@@ -153,14 +162,18 @@ if torch is not None:
                 for start in range(0, n, self.minibatch_size):
                     mb = torch.tensor(order[start:start + self.minibatch_size], dtype=torch.long, device=self.device)
                     logits, values = self.net(states[mb])
-                    dist = torch.distributions.Categorical(logits=logits)
+                    # Reappliquer le masque des coups legaux (choose_card) : sans lui, new_log_probs
+                    # est calcule sous une distribution sur les 32 slots (dont des coups illegaux),
+                    # differente de celle sous laquelle old_log_probs a ete echantillonne -- le ratio
+                    # PPO ci-dessous n'aurait alors plus le sens "combien la policy a-t-elle bouge".
+                    dist = torch.distributions.Categorical(logits=logits + masks[mb])
                     new_log_probs = dist.log_prob(actions[mb])
                     ratio = torch.exp(new_log_probs - old_log_probs[mb])
                     adv = advantages[mb]
                     surr1 = ratio * adv
                     surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * adv
                     policy_loss = -torch.min(surr1, surr2).mean()
-                    value_loss = F.mse_loss(values, returns[mb])
+                    value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
                     entropy = dist.entropy().mean()
                     loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
 

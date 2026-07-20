@@ -1,5 +1,9 @@
-"""Evalue une ou plusieurs NeuralPolicy en mode glouton sur N parties contre
+"""Evalue un ou plusieurs checkpoints en mode glouton sur N parties contre
 HeuristicPlayer (memes sieges/equipe que train.py : policy aux sieges 0/2).
+Charge via PPOPolicy (train_ppo.py), dont `load()` accepte aussi bien un
+checkpoint CardNet (REINFORCE, train.py) qu'un checkpoint ActorCriticNet
+(PPO) -- en greedy (`record=False`) seule la tete policy compte, la tete
+valeur (absente/aleatoire sur un checkpoint REINFORCE) n'intervient pas.
 
 Contrairement a une version precedente qui reseedait `random` avant chaque
 checkpoint et laissait chaque partie se dealer fraichement (`engine.deal()`
@@ -35,7 +39,7 @@ import random
 
 from coinche.game import GameEngine
 from coinche.players import HeuristicPlayer, RLPlayer
-from coinche.rl_agent import NeuralPolicy, torch
+from train_ppo import PPOPolicy, torch
 
 
 def _leads_to_all_pass(hands, dealer):
@@ -112,7 +116,7 @@ def main():
         if path == 'heuristic':
             factory = lambda: [HeuristicPlayer(f'H{i}') for i in range(4)]
         else:
-            policy = NeuralPolicy()
+            policy = PPOPolicy()
             policy.load(path)
             policy.record = False
             factory = lambda policy=policy: [
