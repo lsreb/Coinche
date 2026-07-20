@@ -89,3 +89,120 @@ que les plateaux catastrophiques de `exp_selfplay_frozen150k`/
 `exp_pool_350k` (pas d'effondrement), mais l'hypothese "pool grandissant +
 PFSP evite le plafonnement" n'est pas clairement confirmee par ces chiffres
 au-dela de ~300k.
+
+## PPO (`train_ppo.py`) : comparaison a REINFORCE
+
+`train_ppo.py` implemente PPO (Schulman et al. 2017) sur exactement la meme
+tache que `train.py`/REINFORCE (meme etat/action, meme equipe RL aux sieges
+0/2, meme contre-factuel du point 3 de `remarques_rl.md`), pour comparer les
+deux algorithmes a protocole egal. Round 1 : `--load imit.pt --opponent
+heuristic` seul (pas de pool/PFSP), 50k episodes -- echelle du segment 1
+REINFORCE ci-dessus (+14.4 vs `imit.pt`).
+
+### Deux bugs trouves et corriges avant tout resultat exploitable
+
+Le tout premier run (`exp_ppo_round1_buggy_valueloss`) degradait la policy
+en dessous de zero (eval_avg negatif tout du long, entropie qui grimpe sans
+converger, 0.56 a 1.03). Deux causes independantes :
+
+1. **Echelle de `value_loss`** : MSE sur des retours bruts (~centaines de
+   points) dominait `policy_loss` (sur avantage normalise, O(1)) de
+   plusieurs ordres de grandeur dans la perte totale -- le gradient qui
+   traversait le tronc partage ne servait quasiment plus qu'a minimiser
+   l'erreur de valeur. Fix : diviser `values`/`returns` par l'ecart-type du
+   batch avant le MSE.
+2. **Masque des coups legaux non reapplique** (`exp_ppo_round1_buggy_mask`,
+   apres le fix #1 -- toujours degrade, pire meme) : `choose_card`
+   echantillonne sous une distribution masquee (coups illegaux a `-inf`),
+   mais `update_batch` recalculait `new_log_probs` sous les logits **non
+   masques** -- le ratio PPO (`exp(new_log_prob - old_log_prob)`) n'avait
+   plus le sens "combien la policy a-t-elle bouge". Fix : stocker le masque
+   dans la trajectoire, le reappliquer au recalcul. Verifie par un test
+   direct : ratio dans [0.999999, 1.000002] juste apres collecte (avant tout
+   gradient step), comme attendu si le masque est coherent des deux cotes.
+
+Round 1 refait avec les deux fix (`exp_ppo_round1_epochs4`) : enfin sain
+(entropie stable ~0.2, `value_loss` stable ~1.0 normalise), eval_avg(3000)
+via `eval_policy.py` = **+7.84** contre **+15.22** pour REINFORCE
+(`seg_50000`) au meme budget -- net progres sur `imit.pt` (-3.08) mais a
+peine au-dessus du bruit structurel de `heuristic` contre lui-meme (+7.38).
+
+### Ablation `--epochs` (reutilisation du batch)
+
+Avec `epochs=4, minibatch=64`, le nombre de gradient steps par episode
+(`epochs x 16 / minibatch`, 16 = timesteps enregistres par donne, 2 sieges
+RL x 8 plis) tombe a 1.0 -- autant que REINFORCE, ce qui sous-exploite
+l'avantage propre a PPO (reutiliser un batch plusieurs fois grace au
+clipping). `epochs=8` (2 steps/episode) : eval_avg=**+9.75**
+(`exp_ppo_round1_epochs8`) -- mieux, mais le gain (~2 pts) reste sous l'IC95%
+empirique (~+/-7-8 pts, n=3000) : pas significatif sur un seul run.
+
+### Piste exploree et abandonnee (pour l'instant) : pre-entrainement du critic
+
+Diagnostic (voir aussi `remarques_rl.md`) : le critic a tronc partage
+(`epochs8`) n'expliquait que R2=0.043 de la variance du retour brut, et
+separait a peine attaque/defense (`is_attacker`, pourtant une feature
+d'entree directe) : ~16 points captes sur un ecart reel de ~197. Cause
+probable : son tronc, herite de `imit.pt`, n'avait jamais vu de signal de
+valeur avant PPO, en concurrence avec `policy_loss` sur ce meme tronc
+partage.
+
+Fix architectural : `ActorCriticNet` (tronc partage) remplace par `CardNet`
+(policy, = `imit.pt`, aucun remappage requis au chargement) + `ValueNet`
+(tronc **independant**), plus de concurrence de gradient. `pretrain_value.py`
+(nouveau, calque sur `pretrain.py`) pre-entraine `ValueNet` par regression
+MSE supervisee.
+
+- **v1 (bug de cible)** : regresse sur le retour **brut**
+  (`team_points[0]-team_points[1]`, donnes `HeuristicPlayer` x4) -- bon R2
+  hors ligne (0.33, 5000 donnes/20 epochs), mais `value_loss` en PPO porte
+  en realite sur `reward - counterfactual_reward(...)` (deja applique dans
+  la boucle principale avant que le critic n'intervienne, cf. point 3).
+  Verifie empiriquement : l'ecart attaque/defense tombe de ~190 points sur
+  le retour brut a ~17 points seulement sur le retour contre-factuel -- ce
+  dernier absorbe deja l'essentiel du signal facile. Le critic v1 demarrait
+  donc avec des predictions confiantes (std(value)=127) mais
+  **systematiquement biaisees** pour la vraie cible PPO. Resultat round PPO
+  (`exp_ppo_round1_valuepretrain`) : eval_avg=**+4.92**, pire que
+  epochs4/epochs8.
+- **v2/v3 (cible corrigee)** : regresse sur le retour contre-factuel,
+  collecte avec la policy aux sieges 0/2 (comme `run_episode`) plutot que
+  `HeuristicPlayer` x4. Signal residuel bien plus faible (R2~0.05 a 5000
+  donnes/20 epochs) -- confirme reel mais data-starved par un test
+  train/val a 20000 donnes/60 epochs (R2(val) monte proprement de 0.008 a
+  0.063, pas du bruit). `value_imit.pt` final (sur disque) : 20000 donnes,
+  60 epochs, moyennes par groupe non biaisees mais mesure de R2 bruyante sur
+  petit echantillon frais (~-0.05 sur 800 donnes de validation
+  independantes -- attendu vu la faiblesse du signal). Resultat round PPO
+  (`exp_ppo_round1_valuepretrain_v3`) : eval_avg=**-0.34** -- pire que le
+  critic a init aleatoire (`epochs8`, +9.75).
+
+**Conclusion (piste mise en pause) :** meme correctement cible et non
+biaise, un critic avec un signal aussi faible (R2~0.06) peut faire plus de
+mal que de bien -- ses erreurs propres (std(value) mesure entre 32 et 57)
+ajoutent potentiellement plus de bruit a l'avantage qu'un critic quasi nul
+(init aleatoire, proche de "pas de baseline"). Mais un seul run par
+configuration (50k episodes, seed unique) ne permet pas de trancher entre
+"signal reel mais nuisible" et "bruit de run" (les runs de cette session
+vont de -0.34 a +15.22 pour des configs proches, du meme ordre que l'IC95%
+empirique) -- necessiterait plusieurs seeds pour conclure fermement.
+Architecture (`ValueNet` independant, `pretrain_value.py --load-value`) et
+checkpoints conserves pour reprendre cette piste plus tard si besoin.
+
+### Resultats consolides (`eval_policy.py`, 3000 parties, seed=42)
+
+| Checkpoint | eval_avg(3000) | win_rate |
+|---|---|---|
+| seg_50000 (REINFORCE, reference) | +15.22 | 53.2% |
+| **exp_ppo_round1_epochs8** (meilleur PPO a ce jour) | **+9.75** | 52.2% |
+| exp_ppo_round1_epochs4 | +7.84 | 51.8% |
+| heuristic (reference bruit structurel) | +7.38 | 51.8% |
+| exp_ppo_round1_valuepretrain (critic pre-entraine, cible buggee) | +4.92 | 51.2% |
+| exp_ppo_round1_valuepretrain_v3 (critic pre-entraine, cible corrigee) | -0.34 | 50.3% |
+| imit.pt (point de depart) | -3.08 | 49.6% |
+
+A 50k episodes et `--opponent heuristic` seul, PPO n'a pas encore rattrape
+REINFORCE au meme budget. Prochaine etape : tuning d'autres hyperparametres
+(`lr`, `clip-eps`, `batch-episodes`) en repartant de `epochs8` (critic a
+init aleatoire, la meilleure config a ce jour), sans pre-entrainement du
+critic pour l'instant.

@@ -10,6 +10,7 @@ game_test.json
 CLAUDE.md
 rlfinal_vs_h_donnes/
 rl_experiments_v2/exp_growing_pool/*_checkpoints/
+rl_experiments_v2/exp_ppo_round1*_checkpoints/
 
 # C extensions
 *.so
@@ -228,3 +229,4 @@ __marimo__/
 # Exceptions a la regle *.log generale : logs d'experience RL a garder
 !rl_experiments_v2/exp_growing_pool/*.log
 !rl_experiments_v2/exp_growing_pool_orchestrator.log
+!rl_experiments_v2/exp_ppo_round1*/*.log

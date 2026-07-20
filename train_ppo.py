@@ -14,10 +14,9 @@ donne appliquee a la somme des log-probs de la trajectoire avec une baseline
 EMA globale (`NeuralPolicy.update`), PPO :
   1) accumule un batch de plusieurs donnes (`--batch-episodes`) avant de
      mettre a jour ;
-  2) utilise un critique (`ActorCriticNet.value_head`) qui apprend a predire
-     le retour attendu DEPUIS CHAQUE ETAT de la trajectoire -- baseline plus
-     fine qu'une moyenne mobile globale, avantage = retour de la donne moins
-     cette valeur predite ;
+  2) utilise un critique (`ValueNet`) qui apprend a predire le retour attendu
+     DEPUIS CHAQUE ETAT de la trajectoire -- baseline plus fine qu'une moyenne
+     mobile globale, avantage = retour de la donne moins cette valeur predite ;
   3) fait plusieurs passes (`--epochs`) de descente en minibatches sur ce
      batch, avec un ratio de probabilite clippe (`--clip-eps`) entre la
      policy courante et celle qui a collecte la trajectoire, ce qui autorise
@@ -27,9 +26,17 @@ Le retour utilise pour chaque timestep d'une donne est le meme scalaire pour
 toute la donne (recompense terminale, cf. contre-factuel du point 3) : il n'y
 a pas de recompense intermediaire par pli definie dans ce jeu.
 
+`ValueNet` a son propre tronc, INDEPENDANT de celui de la policy (`CardNet`,
+partage avec REINFORCE/imit.pt) : un tronc partage herite de imit.pt (jamais
+entraine pour la valeur) laissait le critic quasi incapable de separer
+attaque/defense meme apres 50k episodes (cf. remarques_rl.md) -- pre-entrainer
+`ValueNet` par regression supervisee du retour final (`pretrain_value.py`,
+analogue value de `pretrain.py`) avant le fine-tuning PPO est donc recommande.
+
 Usage:
     python train_ppo.py --episodes 5000 --eval-every 200
     python train_ppo.py --episodes 2000 --load poids.pt --save poids.pt
+    python train_ppo.py --load imit.pt --load-value value_imit.pt --episodes 50000
     python train_ppo.py --load poids.pt --opponent heuristic,100k.pt,250k.pt --pfsp --episodes 100000
 """
 import argparse
@@ -40,7 +47,7 @@ import time
 import torch.nn as nn
 import torch.nn.functional as F
 
-from coinche.rl_agent import STATE_DIM, encode_state, _canonical_slots, _slot_index, torch
+from coinche.rl_agent import STATE_DIM, CardNet, encode_state, _canonical_slots, _slot_index, torch
 from train import (
     build_opponent_pool, PFSPSampler, run_episode, counterfactual_reward,
     evaluate, entropy_beta_for_episode,
@@ -48,19 +55,24 @@ from train import (
 
 
 if torch is not None:
-    class ActorCriticNet(nn.Module):
-        """Meme tronc/tete policy que CardNet (coinche/rl_agent.py, 1 couche
-        cachee, 32 logits = un par slot canonique), plus une tete valeur
-        (scalaire) partageant le tronc -- standard pour PPO."""
+    class ValueNet(nn.Module):
+        """Tronc INDEPENDANT de la policy (pas de partage avec CardNet), 1 couche
+        cachee -> 1 scalaire. Avant separation, value_head partageait le tronc
+        `fc1` de la policy (herite de imit.pt, jamais entraine pour la valeur) :
+        diagnostic (remarques_rl.md) montrant qu'apres 50k episodes PPO le
+        critic ne separait quasiment pas attaque/defense (is_attacker, pourtant
+        une feature d'entree directe) alors que l'ecart reel de retour entre
+        les deux est enorme -- le gradient de value_loss sur ce tronc partage
+        etait ecrase par celui de policy_loss. Un tronc dedie, pre-entrainable
+        independamment (pretrain_value.py), evite cette concurrence."""
         def __init__(self, in_dim=STATE_DIM, hidden=128):
             super().__init__()
             self.fc1 = nn.Linear(in_dim, hidden)
-            self.policy_head = nn.Linear(hidden, 32)
             self.value_head = nn.Linear(hidden, 1)
 
         def forward(self, x):
             h = F.relu(self.fc1(x))
-            return self.policy_head(h), self.value_head(h).squeeze(-1)
+            return self.value_head(h).squeeze(-1)
 
 
     class PPOPolicy:
@@ -73,8 +85,10 @@ if torch is not None:
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
                      entropy_coef=0.01, epochs=4, minibatch_size=64):
             self.device = device
-            self.net = ActorCriticNet().to(device)
-            self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
+            self.policy_net = CardNet().to(device)
+            self.value_net = ValueNet().to(device)
+            self.optimizer = torch.optim.Adam(
+                list(self.policy_net.parameters()) + list(self.value_net.parameters()), lr=lr)
             self.clip_eps = clip_eps
             self.value_coef = value_coef
             self.entropy_coef = entropy_coef
@@ -86,7 +100,8 @@ if torch is not None:
 
         def choose_card(self, player, legal, leader, trick, trump):
             x = torch.tensor(encode_state(player, trick, trump), dtype=torch.float32, device=self.device)
-            logits, value = self.net(x)
+            logits = self.policy_net(x)
+            value = self.value_net(x)
             suits, orders = _canonical_slots(trump)
             mask = torch.full((32,), float('-inf'), device=self.device)
             legal_idx = [_slot_index(c.suit, c.rank, suits, orders) for c in legal]
@@ -147,8 +162,9 @@ if torch is not None:
             advantages = returns - old_values
             # Echelle des retours bruts (~centaines de points, cf. rl_experiments_v2/README.md) :
             # sans ca, value_loss (MSE sur ces retours) domine policy_loss (sur avantage normalise,
-            # O(1)) de plusieurs ordres de grandeur dans `loss` ci-dessous, et le gradient qui
-            # traverse le tronc partage `fc1` ne sert plus qu'a minimiser l'erreur de valeur.
+            # O(1)) de plusieurs ordres de grandeur -- policy_net et value_net sont desormais des
+            # troncs independants (plus de risque de "polluer" les features de la policy), mais
+            # `--value-coef` resterait sans effet interpretable sans cette mise a l'echelle commune.
             return_scale = returns.std() + 1e-6
             if advantages.numel() > 1:
                 advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
@@ -161,7 +177,8 @@ if torch is not None:
                 random.shuffle(order)
                 for start in range(0, n, self.minibatch_size):
                     mb = torch.tensor(order[start:start + self.minibatch_size], dtype=torch.long, device=self.device)
-                    logits, values = self.net(states[mb])
+                    logits = self.policy_net(states[mb])
+                    values = self.value_net(states[mb])
                     # Reappliquer le masque des coups legaux (choose_card) : sans lui, new_log_probs
                     # est calcule sous une distribution sur les 32 slots (dont des coups illegaux),
                     # differente de celle sous laquelle old_log_probs a ete echantillonne -- le ratio
@@ -189,22 +206,40 @@ if torch is not None:
             return total_policy_loss / n_updates, total_value_loss / n_updates, total_entropy / n_updates
 
         def save(self, path):
-            torch.save(self.net.state_dict(), path)
+            """Checkpoint natif PPO : les deux reseaux independants dans un seul
+            fichier (dict a 2 cles). Pour un resume complet, repasser ce meme
+            chemin a la fois a --load et --load-value (chacun y prend sa part)."""
+            torch.save({'policy': self.policy_net.state_dict(),
+                        'value': self.value_net.state_dict()}, path)
 
         def load(self, path):
-            """Charge soit un checkpoint PPO natif (fc1/policy_head/value_head),
-            soit un checkpoint REINFORCE (CardNet : fc1/fc2, cf. rl_agent.py) tel
-            que imit.pt ou les segments de rl_experiments(_v2)/ -- remappe alors
-            fc2 -> policy_head et laisse value_head initialisee aleatoirement
-            (ce checkpoint n'a jamais eu de tete valeur)."""
-            state_dict = torch.load(path, map_location=self.device)
-            if 'fc2.weight' in state_dict:
-                state_dict = dict(state_dict)
-                state_dict['policy_head.weight'] = state_dict.pop('fc2.weight')
-                state_dict['policy_head.bias'] = state_dict.pop('fc2.bias')
-                self.net.load_state_dict(state_dict, strict=False)
+            """Charge la policy depuis : un checkpoint PPO natif (dict, cle
+            'policy'), un checkpoint REINFORCE (CardNet : fc1/fc2, cf.
+            rl_agent.py -- imit.pt ou segments de rl_experiments(_v2)/, meme
+            forme que policy_net donc aucun remappage requis), ou un ancien
+            checkpoint PPO a tronc partage (fc1/policy_head/value_head, avant
+            la separation des reseaux -- value_head est alors ignoree)."""
+            obj = torch.load(path, map_location=self.device)
+            if 'policy' in obj:
+                self.policy_net.load_state_dict(obj['policy'])
+            elif 'fc2.weight' in obj:
+                self.policy_net.load_state_dict(obj)
+            elif 'policy_head.weight' in obj:
+                state_dict = dict(obj)
+                state_dict['fc2.weight'] = state_dict.pop('policy_head.weight')
+                state_dict['fc2.bias'] = state_dict.pop('policy_head.bias')
+                state_dict.pop('value_head.weight', None)
+                state_dict.pop('value_head.bias', None)
+                self.policy_net.load_state_dict(state_dict)
             else:
-                self.net.load_state_dict(state_dict)
+                raise ValueError(f"Format de checkpoint non reconnu pour la policy : {path}")
+
+        def load_value(self, path):
+            """Charge value_net depuis : un checkpoint PPO natif (dict, cle
+            'value'), ou un checkpoint value pre-entraine par pretrain_value.py
+            (meme forme que ValueNet, aucun remappage requis)."""
+            obj = torch.load(path, map_location=self.device)
+            self.value_net.load_state_dict(obj['value'] if 'value' in obj else obj)
 
 
 def main():
@@ -236,7 +271,10 @@ def main():
     parser.add_argument('--pfsp-ema-beta', type=float, default=0.98)
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--save', default=None, help="Chemin pour sauvegarder les poids en fin d'entrainement.")
-    parser.add_argument('--load', default=None, help='Chemin pour reprendre depuis des poids sauvegardes.')
+    parser.add_argument('--load', default=None, help='Chemin pour reprendre la policy depuis des poids sauvegardes.')
+    parser.add_argument('--load-value', default=None,
+                         help="Chemin pour charger value_net separement (pretrain_value.py, ou cle 'value' "
+                              "d'un checkpoint PPO natif) -- sans quoi elle demarre initialisee aleatoirement.")
     parser.add_argument('--checkpoint-every', type=int, default=None,
                          help="Sauvegarde un checkpoint tous les N episodes, en plus de --save en fin d'entrainement.")
     parser.add_argument('--checkpoint-dir', default=None,
@@ -263,6 +301,9 @@ def main():
     if args.load:
         policy.load(args.load)
         print('poids charges depuis', args.load)
+    if args.load_value:
+        policy.load_value(args.load_value)
+        print('poids de value_net charges depuis', args.load_value)
 
     if args.checkpoint_every and args.checkpoint_dir:
         os.makedirs(args.checkpoint_dir, exist_ok=True)
