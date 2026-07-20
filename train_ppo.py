@@ -1,0 +1,309 @@
+"""Entraine par PPO (Schulman et al. 2017) une policy actor-critic de jeu de
+la carte, alternative a REINFORCE (train.py) sur exactement la meme tache :
+meme etat/action (`coinche.rl_agent.encode_state`, 32 slots canoniques),
+meme equipe RL aux sieges 0/2 partageant les poids, meme adversaire(s) aux
+sieges 1/3 (--opponent, pool uniforme ou PFSP), meme contre-factuel du point
+3 (`train.counterfactual_reward`). Fichier volontairement separe de train.py
+pour pouvoir developper/tester PPO sans risquer d'affecter une experience
+REINFORCE deja lancee (le code est relu au demarrage de chaque process, pas
+"a chaud" -- mais autant eviter toute ambiguite sur quel code a produit quel
+checkpoint).
+
+Difference cle avec REINFORCE : au lieu d'une seule recompense scalaire par
+donne appliquee a la somme des log-probs de la trajectoire avec une baseline
+EMA globale (`NeuralPolicy.update`), PPO :
+  1) accumule un batch de plusieurs donnes (`--batch-episodes`) avant de
+     mettre a jour ;
+  2) utilise un critique (`ActorCriticNet.value_head`) qui apprend a predire
+     le retour attendu DEPUIS CHAQUE ETAT de la trajectoire -- baseline plus
+     fine qu'une moyenne mobile globale, avantage = retour de la donne moins
+     cette valeur predite ;
+  3) fait plusieurs passes (`--epochs`) de descente en minibatches sur ce
+     batch, avec un ratio de probabilite clippe (`--clip-eps`) entre la
+     policy courante et celle qui a collecte la trajectoire, ce qui autorise
+     plusieurs mises a jour par episode collecte sans diverger (contrairement
+     a REINFORCE, une mise a jour "on-policy" stricte par episode).
+Le retour utilise pour chaque timestep d'une donne est le meme scalaire pour
+toute la donne (recompense terminale, cf. contre-factuel du point 3) : il n'y
+a pas de recompense intermediaire par pli definie dans ce jeu.
+
+Usage:
+    python train_ppo.py --episodes 5000 --eval-every 200
+    python train_ppo.py --episodes 2000 --load poids.pt --save poids.pt
+    python train_ppo.py --load poids.pt --opponent heuristic,100k.pt,250k.pt --pfsp --episodes 100000
+"""
+import argparse
+import os
+import random
+import time
+
+import torch.nn as nn
+import torch.nn.functional as F
+
+from coinche.rl_agent import STATE_DIM, encode_state, _canonical_slots, _slot_index, torch
+from train import (
+    build_opponent_pool, PFSPSampler, run_episode, counterfactual_reward,
+    evaluate, entropy_beta_for_episode,
+)
+
+
+if torch is not None:
+    class ActorCriticNet(nn.Module):
+        """Meme tronc/tete policy que CardNet (coinche/rl_agent.py, 1 couche
+        cachee, 32 logits = un par slot canonique), plus une tete valeur
+        (scalaire) partageant le tronc -- standard pour PPO."""
+        def __init__(self, in_dim=STATE_DIM, hidden=128):
+            super().__init__()
+            self.fc1 = nn.Linear(in_dim, hidden)
+            self.policy_head = nn.Linear(hidden, 32)
+            self.value_head = nn.Linear(hidden, 1)
+
+        def forward(self, x):
+            h = F.relu(self.fc1(x))
+            return self.policy_head(h), self.value_head(h).squeeze(-1)
+
+
+    class PPOPolicy:
+        """Interface compatible RLPlayer/run_episode/evaluate (choose_card,
+        record, save, load) pour reutiliser telles quelles les fonctions de
+        train.py. `record=True` (par defaut) echantillonne et memorise
+        (etat, action, log-prob, valeur) dans `self._traj` ; `record=False`
+        (evaluation) joue en glouton (argmax) sans rien memoriser."""
+        def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
+                     entropy_coef=0.01, epochs=4, minibatch_size=64):
+            self.device = device
+            self.net = ActorCriticNet().to(device)
+            self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
+            self.clip_eps = clip_eps
+            self.value_coef = value_coef
+            self.entropy_coef = entropy_coef
+            self.epochs = epochs
+            self.minibatch_size = minibatch_size
+            self.record = True
+            self._traj = []       # (etat, action_idx, log_prob, valeur) de la donne en cours
+            self._episodes = []   # [(traj, retour)] accumules depuis la derniere update_batch()
+
+        def choose_card(self, player, legal, leader, trick, trump):
+            x = torch.tensor(encode_state(player, trick, trump), dtype=torch.float32, device=self.device)
+            logits, value = self.net(x)
+            suits, orders = _canonical_slots(trump)
+            mask = torch.full((32,), float('-inf'), device=self.device)
+            legal_idx = [_slot_index(c.suit, c.rank, suits, orders) for c in legal]
+            mask[legal_idx] = 0.0
+            masked_logits = logits + mask
+
+            if self.record:
+                dist = torch.distributions.Categorical(logits=masked_logits)
+                action_idx = dist.sample()
+                self._traj.append((x.detach(), int(action_idx.item()),
+                                    dist.log_prob(action_idx).detach(), value.detach()))
+            else:
+                action_idx = torch.argmax(masked_logits)
+
+            slot, rank_pos = divmod(int(action_idx.item()), 8)
+            chosen_suit, chosen_rank = suits[slot], orders[slot][rank_pos]
+            return next(c for c in legal if c.suit == chosen_suit and c.rank == chosen_rank)
+
+        def end_episode(self, reward):
+            """A appeler une fois la donne terminee (au lieu de `.update()`
+            pour REINFORCE) : archive la trajectoire avec son retour (le
+            reward contre-factuel, comme REINFORCE) pour la prochaine
+            `update_batch()`. Ne declenche aucune mise a jour immediate."""
+            if not self._traj:
+                return
+            self._episodes.append((self._traj, reward))
+            self._traj = []
+
+        def update_batch(self):
+            """Mise a jour PPO sur toutes les donnes accumulees depuis le
+            dernier appel (cf. `end_episode`) : avantage = retour de la donne
+            moins la valeur predite a cet etat (meme retour pour tous les
+            timesteps d'une donne, recompense terminale), normalise, puis
+            `self.epochs` passes en minibatches sur l'objectif clippe + perte
+            de valeur (MSE) + bonus d'entropie. Vide le batch apres coup.
+            Retourne (policy_loss, value_loss, entropy) moyens, ou None si
+            rien n'etait accumule."""
+            if not self._episodes:
+                return None
+            states, actions, old_log_probs, old_values, returns = [], [], [], [], []
+            for traj, reward in self._episodes:
+                for x, action_idx, old_lp, old_v in traj:
+                    states.append(x)
+                    actions.append(action_idx)
+                    old_log_probs.append(old_lp)
+                    old_values.append(old_v)
+                    returns.append(reward)
+            self._episodes = []
+
+            states = torch.stack(states)
+            actions = torch.tensor(actions, dtype=torch.long, device=self.device)
+            old_log_probs = torch.stack(old_log_probs)
+            old_values = torch.stack(old_values)
+            returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
+            advantages = returns - old_values
+            if advantages.numel() > 1:
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+
+            n = states.shape[0]
+            order = list(range(n))
+            total_policy_loss = total_value_loss = total_entropy = 0.0
+            n_updates = 0
+            for _ in range(self.epochs):
+                random.shuffle(order)
+                for start in range(0, n, self.minibatch_size):
+                    mb = torch.tensor(order[start:start + self.minibatch_size], dtype=torch.long, device=self.device)
+                    logits, values = self.net(states[mb])
+                    dist = torch.distributions.Categorical(logits=logits)
+                    new_log_probs = dist.log_prob(actions[mb])
+                    ratio = torch.exp(new_log_probs - old_log_probs[mb])
+                    adv = advantages[mb]
+                    surr1 = ratio * adv
+                    surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * adv
+                    policy_loss = -torch.min(surr1, surr2).mean()
+                    value_loss = F.mse_loss(values, returns[mb])
+                    entropy = dist.entropy().mean()
+                    loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.optimizer.step()
+
+                    total_policy_loss += policy_loss.item()
+                    total_value_loss += value_loss.item()
+                    total_entropy += entropy.item()
+                    n_updates += 1
+
+            return total_policy_loss / n_updates, total_value_loss / n_updates, total_entropy / n_updates
+
+        def save(self, path):
+            torch.save(self.net.state_dict(), path)
+
+        def load(self, path):
+            self.net.load_state_dict(torch.load(path, map_location=self.device))
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--episodes', type=int, default=2000, help="Nombre de donnes d'entrainement.")
+    parser.add_argument('--batch-episodes', type=int, default=32,
+                         help="Nombre de donnes collectees entre deux mises a jour PPO.")
+    parser.add_argument('--epochs', type=int, default=4, help='Passes PPO par batch collecte.')
+    parser.add_argument('--minibatch-size', type=int, default=64)
+    parser.add_argument('--clip-eps', type=float, default=0.2, help='Largeur du clip du ratio PPO.')
+    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--value-coef', type=float, default=0.5, help='Poids de la perte de valeur (MSE).')
+    parser.add_argument('--entropy-coef', type=float, default=0.01, help="Poids du bonus d'entropie.")
+    parser.add_argument('--entropy-decay', choices=['none', 'invsqrt', 'inv'], default='none',
+                         help="Decroissance de --entropy-coef au fil des episodes (meme schema que "
+                              "train.py --entropy-decay) : 'none' (constant), 'invsqrt' (beta/sqrt(ep)), "
+                              "'inv' (beta/ep).")
+    parser.add_argument('--eval-every', type=int, default=200, help='Frequence (en episodes) des evaluations gloutonnes.')
+    parser.add_argument('--eval-games', type=int, default=100, help='Nombre de donnes par evaluation.')
+    parser.add_argument('--no-counterfactual-baseline', action='store_true',
+                         help="Desactive le contre-factuel (remarques_rl.md point 3) : utilise le reward "
+                              "brut directement comme retour PPO.")
+    parser.add_argument('--opponent', default='heuristic',
+                         help="Adversaire(s) aux sieges 1/3, separes par des virgules : meme semantique que "
+                              "train.py --opponent (heuristic et/ou chemins de poids, pool si plusieurs).")
+    parser.add_argument('--pfsp', action='store_true', help='Meme semantique que train.py --pfsp.')
+    parser.add_argument('--pfsp-refresh-every', type=int, default=5000)
+    parser.add_argument('--pfsp-temperature', type=float, default=1.0)
+    parser.add_argument('--pfsp-ema-beta', type=float, default=0.98)
+    parser.add_argument('--seed', type=int, default=None)
+    parser.add_argument('--save', default=None, help="Chemin pour sauvegarder les poids en fin d'entrainement.")
+    parser.add_argument('--load', default=None, help='Chemin pour reprendre depuis des poids sauvegardes.')
+    parser.add_argument('--checkpoint-every', type=int, default=None,
+                         help="Sauvegarde un checkpoint tous les N episodes, en plus de --save en fin d'entrainement.")
+    parser.add_argument('--checkpoint-dir', default=None,
+                         help='Dossier de sauvegarde des checkpoints (requis avec --checkpoint-every).')
+    parser.add_argument('--episode-offset', type=int, default=0,
+                         help="Decalage ajoute au compteur d'episode (logs, dealer, decroissance, nom des "
+                              "checkpoints) : pour reprendre un entrainement precedent avec une numerotation "
+                              "absolue coherente.")
+    args = parser.parse_args()
+
+    if torch is None:
+        raise SystemExit("torch est requis pour entrainer une PPOPolicy (voir requirements.txt).")
+
+    if args.seed is not None:
+        random.seed(args.seed)
+        torch.manual_seed(args.seed)
+
+    opponent_pool = build_opponent_pool(args.opponent)
+    sampler = PFSPSampler(opponent_pool, refresh_every=args.pfsp_refresh_every,
+                           temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
+
+    policy = PPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
+                        entropy_coef=args.entropy_coef, epochs=args.epochs, minibatch_size=args.minibatch_size)
+    if args.load:
+        policy.load(args.load)
+        print('poids charges depuis', args.load)
+
+    if args.checkpoint_every and args.checkpoint_dir:
+        os.makedirs(args.checkpoint_dir, exist_ok=True)
+
+    window = []
+    adv_window = []
+    last_stats = None
+    start = time.perf_counter()
+    for ep in range(1, args.episodes + 1):
+        global_ep = ep + args.episode_offset
+        policy.entropy_coef = entropy_beta_for_episode(args.entropy_coef, global_ep, args.entropy_decay)
+        dealer = global_ep % 4
+        if sampler is not None:
+            opponent_name, opponent_factory = sampler.choose(global_ep)
+        else:
+            opponent_name, opponent_factory = (
+                opponent_pool[0] if len(opponent_pool) == 1 else random.choice(opponent_pool)
+            )
+        reward, hands = run_episode(policy, dealer=dealer, opponent_factory=opponent_factory)
+        if sampler is not None:
+            sampler.record_outcome(opponent_name, reward)
+        if args.no_counterfactual_baseline:
+            training_reward = reward
+        else:
+            training_reward = reward - counterfactual_reward(hands, dealer=dealer, opponent_factory=opponent_factory)
+        policy.end_episode(training_reward)
+
+        window.append(reward)
+        adv_window.append(training_reward)
+        if len(window) > 200:
+            window.pop(0)
+            adv_window.pop(0)
+
+        if ep % args.batch_episodes == 0:
+            stats = policy.update_batch()
+            if stats is not None:
+                last_stats = stats
+
+        if ep % args.eval_every == 0:
+            avg_train = sum(window) / len(window)
+            avg_adv = sum(adv_window) / len(adv_window)
+            avg_eval, win_rate = evaluate(policy, args.eval_games, start_dealer=global_ep)
+            elapsed = time.perf_counter() - start
+            stats_str = (f"  policy_loss={last_stats[0]:+.4f}  value_loss={last_stats[1]:.4f}  "
+                         f"entropy={last_stats[2]:.3f}") if last_stats is not None else ""
+            print(f"episode {global_ep:6d}  train_avg={avg_train:+7.1f}  adv_avg={avg_adv:+7.1f}  "
+                  f"eval_avg({args.eval_games})={avg_eval:+7.1f}  win_rate={100*win_rate:5.1f}%  "
+                  f"entropy_coef={policy.entropy_coef:.4f}{stats_str}  ({elapsed:.1f}s)")
+            if sampler is not None:
+                print(f"  picks: {sampler.summary()}")
+
+        if args.checkpoint_every and args.checkpoint_dir and ep % args.checkpoint_every == 0:
+            policy.save(os.path.join(args.checkpoint_dir, f'ckpt_ep{global_ep}.pt'))
+
+    # Dernier batch partiel (si args.episodes n'est pas multiple de --batch-episodes).
+    stats = policy.update_batch()
+    if stats is not None:
+        last_stats = stats
+
+    if args.save:
+        policy.save(args.save)
+        print('poids sauvegardes dans', args.save)
+
+    if sampler is not None:
+        print('PFSP picks total:', sampler.summary())
+
+
+if __name__ == '__main__':
+    main()
