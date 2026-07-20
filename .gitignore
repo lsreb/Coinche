@@ -8,6 +8,7 @@ game_history_test.json
 game_history_viewer.html
 game_test.json
 CLAUDE.md
+rlfinal_vs_h_donnes/
 rl_experiments_v2/exp_growing_pool/*_checkpoints/
 
 # C extensions

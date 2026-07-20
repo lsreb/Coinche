@@ -179,7 +179,19 @@ if torch is not None:
             torch.save(self.net.state_dict(), path)
 
         def load(self, path):
-            self.net.load_state_dict(torch.load(path, map_location=self.device))
+            """Charge soit un checkpoint PPO natif (fc1/policy_head/value_head),
+            soit un checkpoint REINFORCE (CardNet : fc1/fc2, cf. rl_agent.py) tel
+            que imit.pt ou les segments de rl_experiments(_v2)/ -- remappe alors
+            fc2 -> policy_head et laisse value_head initialisee aleatoirement
+            (ce checkpoint n'a jamais eu de tete valeur)."""
+            state_dict = torch.load(path, map_location=self.device)
+            if 'fc2.weight' in state_dict:
+                state_dict = dict(state_dict)
+                state_dict['policy_head.weight'] = state_dict.pop('fc2.weight')
+                state_dict['policy_head.bias'] = state_dict.pop('fc2.bias')
+                self.net.load_state_dict(state_dict, strict=False)
+            else:
+                self.net.load_state_dict(state_dict)
 
 
 def main():
