@@ -19,9 +19,11 @@ Usage:
     python train.py --episodes 5000 --eval-every 200
     python train.py --episodes 2000 --load poids.pt --save poids.pt
     python train.py --load poids.pt --opponent poids.pt --episodes 100000  # self-play vs copie figee
-    python train.py --load poids.pt --opponent heuristic,100k.pt,250k.pt --episodes 100000  # pool, tirage par episode
+    python train.py --load poids.pt --opponent heuristic,100k.pt,250k.pt --episodes 100000  # pool, tirage uniforme
+    python train.py --load poids.pt --opponent heuristic,100k.pt,250k.pt --pfsp --episodes 100000  # pool, tirage PFSP
 """
 import argparse
+import math
 import os
 import random
 import time
@@ -36,6 +38,85 @@ RL_SEATS = (0, 2)
 
 def _default_opponent(name):
     return HeuristicPlayer(name)
+
+
+def make_opponent_factory(token):
+    """Fabrique de joueur pour un token d'adversaire du pool (--opponent) :
+    'heuristic', ou un chemin vers des poids NeuralPolicy sauvegardes
+    (self-play contre une copie figee, jeu glouton, jamais mise a jour).
+    Au niveau module (pas dans main()) pour etre reutilisable par
+    train_ppo.py sans dupliquer cette logique."""
+    if token == 'heuristic':
+        return _default_opponent
+    frozen = NeuralPolicy()
+    frozen.load(token)
+    frozen.record = False  # glouton, jamais mis a jour (pas d'appel a .update())
+    print('adversaire fige charge depuis', token)
+    return lambda name, frozen=frozen: RLPlayer(name, frozen)
+
+
+def build_opponent_pool(opponent_arg):
+    """Parse --opponent ('token1,token2,...') en une liste [(token, factory)].
+    Leve une erreur si vide."""
+    tokens = [t.strip() for t in opponent_arg.split(',') if t.strip()]
+    if not tokens:
+        raise SystemExit("--opponent doit contenir au moins une valeur.")
+    return [(t, make_opponent_factory(t)) for t in tokens]
+
+
+class PFSPSampler:
+    """Tirage de l'adversaire de type Prioritized Fictitious Self-Play
+    (AlphaStar) : plutot qu'un tirage uniforme dans le pool (--opponent), les
+    adversaires les plus coriaces pour la policy en cours (win-rate courant
+    le plus bas) sont favorises, via une repartition de Boltzmann sur
+    `1 - win_rate` (temperature `temperature` : plus bas = biais plus marque
+    vers le plus coriace, plus haut = plus proche d'un tirage uniforme). Le
+    win-rate par adversaire est une moyenne mobile exponentielle
+    (`ema_beta`, initialisee a 0.5 = pas d'info) mise a jour a chaque episode
+    reellement joue contre lui (`record_outcome`). La repartition de tirage
+    n'est recalculee que tous les `refresh_every` episodes (pas a chaque
+    episode) pour rester lisible et stable ; entre deux recalculs le tirage
+    utilise les poids figes du dernier recalcul. `picks` compte combien de
+    fois chaque adversaire a ete choisi, pour reporting (cf. `summary`)."""
+
+    def __init__(self, pool, refresh_every=5000, temperature=1.0, ema_beta=0.98):
+        if not pool:
+            raise ValueError('pool vide')
+        self.names = [name for name, _ in pool]
+        self.factories = [factory for _, factory in pool]
+        self.refresh_every = refresh_every
+        self.temperature = max(temperature, 1e-6)
+        self.ema_beta = ema_beta
+        self.ema_winrate = {name: 0.5 for name in self.names}
+        self.picks = {name: 0 for name in self.names}
+        self._weights = [1.0 / len(self.names)] * len(self.names)
+
+    def _refresh_weights(self):
+        toughness = [1.0 - self.ema_winrate[name] for name in self.names]
+        m = max(toughness)  # stabilite numerique du softmax (invariance par decalage)
+        exps = [math.exp((t - m) / self.temperature) for t in toughness]
+        s = sum(exps)
+        self._weights = [e / s for e in exps]
+
+    def choose(self, global_ep):
+        if len(self.names) > 1 and (global_ep == 1 or global_ep % self.refresh_every == 0):
+            self._refresh_weights()
+        if len(self.names) == 1:
+            idx = 0
+        else:
+            idx = random.choices(range(len(self.names)), weights=self._weights, k=1)[0]
+        name = self.names[idx]
+        self.picks[name] += 1
+        return name, self.factories[idx]
+
+    def record_outcome(self, name, reward):
+        won = 1.0 if reward > 0 else 0.0
+        self.ema_winrate[name] = self.ema_beta * self.ema_winrate[name] + (1 - self.ema_beta) * won
+
+    def summary(self):
+        return '  '.join(
+            f"{name}:{self.picks[name]}x(wr={self.ema_winrate[name]:.2f})" for name in self.names
+        )
 
 
 def run_episode(policy, dealer, opponent_factory=_default_opponent):
@@ -131,6 +212,18 @@ def main():
     parser.add_argument('--entropy-decay', choices=['none', 'invsqrt', 'inv'], default='none',
                          help="Decroissance du bonus d'entropie au fil des episodes : 'none' (constant), "
                               "'invsqrt' (beta/sqrt(ep)), 'inv' (beta/ep).")
+    parser.add_argument('--pfsp', action='store_true',
+                         help="Prioritized Fictitious Self-Play : biaise le tirage de --opponent vers les "
+                              "adversaires les plus coriaces (win-rate courant le plus bas) au lieu d'un "
+                              "tirage uniforme (cf. PFSPSampler). Sans effet si --opponent n'a qu'une valeur.")
+    parser.add_argument('--pfsp-refresh-every', type=int, default=5000,
+                         help="Frequence (en episodes) de recalcul de la repartition de tirage PFSP.")
+    parser.add_argument('--pfsp-temperature', type=float, default=1.0,
+                         help="Temperature du softmax PFSP : plus bas = biais plus marque vers l'adversaire "
+                              "le plus coriace, plus haut = plus proche d'un tirage uniforme.")
+    parser.add_argument('--pfsp-ema-beta', type=float, default=0.98,
+                         help="Coefficient de la moyenne mobile exponentielle du win-rate par adversaire "
+                              "(PFSP) : plus proche de 1 = memoire plus longue.")
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--save', default=None, help="Chemin pour sauvegarder les poids en fin d'entrainement.")
     parser.add_argument('--load', default=None, help='Chemin pour reprendre depuis des poids sauvegardes.')
@@ -151,19 +244,9 @@ def main():
         random.seed(args.seed)
         torch.manual_seed(args.seed)
 
-    def make_opponent_factory(token):
-        if token == 'heuristic':
-            return _default_opponent
-        frozen = NeuralPolicy()
-        frozen.load(token)
-        frozen.record = False  # glouton, jamais mis a jour (pas d'appel a .update())
-        print('adversaire fige charge depuis', token)
-        return lambda name, frozen=frozen: RLPlayer(name, frozen)
-
-    opponent_tokens = [t.strip() for t in args.opponent.split(',') if t.strip()]
-    opponent_pool = [make_opponent_factory(t) for t in opponent_tokens]
-    if not opponent_pool:
-        raise SystemExit("--opponent doit contenir au moins une valeur.")
+    opponent_pool = build_opponent_pool(args.opponent)
+    sampler = PFSPSampler(opponent_pool, refresh_every=args.pfsp_refresh_every,
+                           temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
 
     policy = NeuralPolicy(lr=args.lr, entropy_beta=args.entropy_beta)
     if args.load:
@@ -180,8 +263,15 @@ def main():
         global_ep = ep + args.episode_offset
         policy.entropy_beta = entropy_beta_for_episode(args.entropy_beta, global_ep, args.entropy_decay)
         dealer = global_ep % 4
-        opponent_factory = opponent_pool[0] if len(opponent_pool) == 1 else random.choice(opponent_pool)
+        if sampler is not None:
+            opponent_name, opponent_factory = sampler.choose(global_ep)
+        else:
+            opponent_name, opponent_factory = (
+                opponent_pool[0] if len(opponent_pool) == 1 else random.choice(opponent_pool)
+            )
         reward, hands = run_episode(policy, dealer=dealer, opponent_factory=opponent_factory)
+        if sampler is not None:
+            sampler.record_outcome(opponent_name, reward)
         if args.no_counterfactual_baseline:
             training_reward = reward
         else:
@@ -202,6 +292,8 @@ def main():
             print(f"episode {global_ep:6d}  train_avg={avg_train:+7.1f}  adv_avg={avg_adv:+7.1f}  "
                   f"eval_avg({args.eval_games})={avg_eval:+7.1f}  win_rate={100*win_rate:5.1f}%  "
                   f"entropy_beta={policy.entropy_beta:.4f}  baseline={policy.baseline:+7.1f}  ({elapsed:.1f}s)")
+            if sampler is not None:
+                print(f"  picks: {sampler.summary()}")
 
         if args.checkpoint_every and args.checkpoint_dir and ep % args.checkpoint_every == 0:
             policy.save(os.path.join(args.checkpoint_dir, f'ckpt_ep{global_ep}.pt'))
@@ -209,6 +301,9 @@ def main():
     if args.save:
         policy.save(args.save)
         print('poids sauvegardes dans', args.save)
+
+    if sampler is not None:
+        print('PFSP picks total:', sampler.summary())
 
 
 if __name__ == '__main__':
