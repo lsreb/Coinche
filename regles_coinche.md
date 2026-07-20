@@ -47,5 +47,5 @@ En cas de coinche annoncée, la mise est doublée. L'équipe qui gagne la donne 
 
 Pour compter à tout atout, il y a 248 points en tout, pas de der. Pour faire 80-TA, l'attaque doit faire 120 points à TA. Puis le comptage se fait de 15 en 15: pour 90-TA, l'attaque doit faire 135, pour 100-TA, l'attaque doit faire 150, et ainsi de suite, les correspondances sont précisés ci-après:
 Pour 80-90-100-110-120-130-140-150-160 normalement, à TA on a : 120-135-150-165-180-195-210-225-240. Le capot rest compté à 250.
-A TA, les points faits encaissés par l'attaque ou la défense sont arrondis à l'inférieur pour l'attaque, et au supérieur pour la défense : par exemple si l'attaque fait son contrat à 120 TA et fait 200 points, alors elle marque les 120 de son contrat + les 110 points équivalents encaissés. La défense marque les 50 points de défense.
+A TA, les points faits encaissés par l'attaque ou la défense sont arrondis à l'inférieur pour l'attaque, et au supérieur pour la défense : par exemple si l'attaque fait son contrat à 120 TA et fait entre 195 et 209 points (avant conversion), alors elle marque les 120 de son contrat + les 130 points équivalents encaissés. La défense marque les 30 points de défense.
 

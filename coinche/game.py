@@ -231,6 +231,21 @@ class GameEngine:
         else:
             return NORMAL_POINTS.get(card.rank, 0)
 
+    @staticmethod
+    def _round_dizaine(points: int, direction: str = 'nearest') -> int:
+        """Arrondit `points` a la dizaine (regles_coinche.md §5). 'nearest' :
+        unites 5-9 vers la dizaine superieure, 1-4 vers l'inferieure (arrondi
+        standard "half up", pas le round-half-to-even de Python) -- utilise
+        pour les contrats couleur/SA, ou attaque et defense arrondissent
+        pareil. 'down'/'up' forcent systematiquement vers le bas/le haut --
+        utilise a TA, ou l'arrondi est explicitement asymetrique (attaque
+        vers le bas, defense vers le haut)."""
+        if direction == 'down':
+            return (points // 10) * 10
+        if direction == 'up':
+            return -(-points // 10) * 10
+        return ((points + 5) // 10) * 10
+
     def play(self):
         if self.contract is None:
             self.run_auction()
@@ -254,25 +269,17 @@ class GameEngine:
             tricks_won[winner].extend([c for (_,c) in trick])
             leader = winner
 
-        # scoring (unchanged)
+        # scoring -- regles_coinche.md §5
         team_tricks = {0: 0, 1: 0}
         for p, cards in tricks_won.items():
             team_tricks[p % 2] += len(cards) // 4
         capot_team = 0 if team_tricks[0] == 8 else (1 if team_tricks[1] == 8 else None)
 
-        team_points = {0:0,1:0}
-        if capot_team is not None:
-            # Une équipe qui fait tous les plis marque 250, quel que soit le contrat
-            # (regles_coinche.md §5), au lieu de la somme brute des points de cartes.
-            team_points[capot_team] = 250
-        else:
-            for p, cards in tricks_won.items():
-                pts = sum(self.card_point(c, trump) for c in cards)
-                team = p%2
-                team_points[team] += pts
-            if trump != 'TA':
-                last_winner = leader
-                team_points[last_winner%2] += 10
+        raw_card_points = {0: 0, 1: 0}
+        for p, cards in tricks_won.items():
+            raw_card_points[p % 2] += sum(self.card_point(c, trump) for c in cards)
+        if trump != 'TA':
+            raw_card_points[leader % 2] += 10  # 10 de der (pas de der a TA)
 
         belote_bonus = {0:0,1:0}
         if trump != 'SA' and trump != 'TA':
@@ -283,32 +290,98 @@ class GameEngine:
                     break
 
         # Points de plis bruts (+ der + belote), toujours calcules independamment
-        # de la coinche : c'est ce qui determine la reussite du contrat
-        # (regles_coinche.md : "avec la belote elle passe a 95 et pourrait faire
-        # son contrat a 80-C", la belote compte donc bien pour la reussite), et ce
-        # que des scripts externes (simulate_contracts.py) veulent pour calibrer
-        # les encheres independamment du forfait fixe applique en cas de coinche.
-        raw_points = {team: team_points[team] + belote_bonus[team] for team in (0, 1)}
+        # de la coinche/reussite du contrat : c'est ce qui determine la reussite
+        # du contrat (regles_coinche.md : "avec la belote elle passe a 95 et
+        # pourrait faire son contrat a 80-C", la belote compte donc bien pour la
+        # reussite), et ce que des scripts externes (simulate_contracts.py)
+        # veulent pour calibrer les encheres independamment du score final.
+        raw_points = {team: raw_card_points[team] + belote_bonus[team] for team in (0, 1)}
         if self.history is not None:
-            self.history['raw_points'] = dict(raw_points)
+            history_raw_points = dict(raw_points)
+            if capot_team is not None:
+                # Un capot vaut "officiellement" 250 (regles_coinche.md), y compris
+                # pour ce champ d'historique -- simulate_contracts.py s'appuie sur
+                # raw_points atteignant 250 pour detecter un capot reussi dans son
+                # tableau de calibration. N'affecte pas la logique de scoring
+                # ci-dessous (capot_team est deja traite dans une branche a part).
+                history_raw_points[capot_team] = 250 + belote_bonus[capot_team]
+            self.history['raw_points'] = history_raw_points
+
+        taker_team = self.taker_idx % 2
+        defense_team = 1 - taker_team
+        # A TA le seuil de reussite est sur l'echelle a 15 (80-TA necessite 120,
+        # 90-TA necessite 135, ...), pas la valeur brute du contrat (correspondance
+        # 80-90-...-160 <-> 120-135-...-240, regles_coinche.md §5).
+        threshold = int(self.contract.level * 1.5) if trump == 'TA' else self.contract.level
+
+        if capot_team is not None:
+            # Une equipe qui fait tous les plis marque 250 (quel que soit le
+            # contrat), 500 (+belote) en plus si c'etait precisement le capot
+            # annonce et reussi par le preneur (regles_coinche.md §5).
+            attack_success = (capot_team == taker_team)
+            if self.contract.capot and attack_success:
+                team_points = {taker_team: 500 + belote_bonus[taker_team], defense_team: belote_bonus[defense_team]}
+            else:
+                team_points = {capot_team: 250, (1 - capot_team): 0}
+        elif self.contract.capot:
+            # Capot annonce mais pas realise (preneur n'a pas fait les 8 plis) :
+            # chute du contrat capot -- self.contract.level vaut deja 250 pour un
+            # capot (_normalize_bid), donc la defense marque 160+250.
+            attack_success = False
+            team_points = {
+                taker_team: belote_bonus[taker_team],
+                defense_team: 160 + self.contract.level + belote_bonus[defense_team],
+            }
+        else:
+            attack_success = raw_points[taker_team] >= threshold
+            if attack_success:
+                if trump == 'TA':
+                    # A TA, les points de plis sont d'abord convertis sur
+                    # l'echelle a 15 (15 points TA = 10 points "equivalents"),
+                    # PUIS arrondis a la dizaine -- pas l'inverse. En pratique
+                    # ca revient a une division entiere par 15 (attaque, vers
+                    # le bas) ou une division entiere superieure par 15
+                    # (defense, vers le haut), le tout x10. Le contrat ajoute
+                    # est le seuil deja mis a l'echelle (`threshold`, ex. 120
+                    # pour un contrat annonce a 80), pas la valeur brute
+                    # annoncee -- confirme par regles_coinche.md §5 (exemple
+                    # corrige : 195-209 points de plis -> 130 points
+                    # equivalents pour l'attaque, 120+130=250 ; le complementaire
+                    # cote defense donne 30).
+                    attack_made = (raw_card_points[taker_team] // 15) * 10
+                    defense_made = -(-raw_card_points[defense_team] // 15) * 10
+                    contract_component = threshold
+                else:
+                    # Couleur/SA : arrondi standard (5-9 superieur, 1-4
+                    # inferieur) des deux cotes, contrat ajoute a sa valeur
+                    # annoncee brute (regles_coinche.md §5, exemple 90-T
+                    # verifie : 107->110, 55->60).
+                    attack_made = self._round_dizaine(raw_card_points[taker_team], 'nearest')
+                    defense_made = self._round_dizaine(raw_card_points[defense_team], 'nearest')
+                    contract_component = self.contract.level
+                team_points = {
+                    taker_team: contract_component + attack_made + belote_bonus[taker_team],
+                    defense_team: defense_made + belote_bonus[defense_team],
+                }
+            else:
+                # Contrat chute : l'attaque marque 0 (+sa belote), la defense
+                # marque 160 + la valeur du contrat (+sa belote).
+                team_points = {
+                    taker_team: belote_bonus[taker_team],
+                    defense_team: 160 + self.contract.level + belote_bonus[defense_team],
+                }
 
         if self.contract.coinched:
-            # regles_coinche.md §5 : la coinche double la mise et remplace le score
-            # par un forfait fixe (160 + 2x le contrat) pour l'equipe qui gagne la
-            # donne, 0 pour l'autre -- independamment des points de plis reellement
-            # faits (seule la reussite/echec du contrat, comme sans coinche, compte).
-            # self.contract.level vaut deja 250 pour un capot (_normalize_bid).
-            taker_team = self.taker_idx % 2
-            defense_team = 1 - taker_team
-            attack_success = raw_points[taker_team] >= self.contract.level
+            # La coinche double la mise et remplace le score par un forfait fixe
+            # (160 + 2x le contrat) pour l'equipe qui gagne la donne (= a reussi
+            # son contrat, deja determine ci-dessus via `attack_success`), 0 pour
+            # l'autre -- independamment des points de plis reellement faits.
             winner = taker_team if attack_success else defense_team
             loser = 1 - winner
             team_points = {
                 winner: 160 + 2 * self.contract.level + belote_bonus[winner],
                 loser: belote_bonus[loser],
             }
-        else:
-            team_points = raw_points
 
         return team_points, self.contract
     
