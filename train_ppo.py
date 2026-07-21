@@ -208,7 +208,16 @@ if torch is not None:
         def save(self, path):
             """Checkpoint natif PPO : les deux reseaux independants dans un seul
             fichier (dict a 2 cles). Pour un resume complet, repasser ce meme
-            chemin a la fois a --load et --load-value (chacun y prend sa part)."""
+            chemin a la fois a --load et --load-value (chacun y prend sa part).
+            Ne sauvegarde PAS l'etat de self.optimizer (moments Adam m/v) : une
+            reprise (--load/--load-value puis poursuite de l'entrainement dans
+            un nouveau process) repart avec un Adam "a froid" sur des poids
+            deja entraines, pas un vrai historique continu -- meme limite deja
+            presente pour NeuralPolicy/REINFORCE (train.py) entre les segments
+            de rl_experiments_v2/exp_growing_pool. Impact estime faible (les
+            moments se re-stabilisent en quelques centaines de steps, une
+            fraction negligeable d'un segment de dizaines de milliers
+            d'episodes) mais reel a chaque frontiere --episode-offset."""
             torch.save({'policy': self.policy_net.state_dict(),
                         'value': self.value_net.state_dict()}, path)
 

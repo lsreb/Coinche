@@ -46,6 +46,44 @@ motivee, implementation verifiee, resultat compatible avec "aide un peu" ou
 remarque que pour l'ablation `--lr` de `rl_experiments_v2/README.md`) pour
 conclure.
 
+## Continuation a 100k episodes
+
+`exp_ppo_lr3e-5/ppo_50000.pt` prolonge de 50k episodes supplementaires
+(`--load`+`--load-value` sur ce meme checkpoint pour reprendre policy ET
+critic, `--episode-offset 50000`, `--seed 21` -- memes hyperparametres
+sinon), pour voir si la performance a 50k etait un plateau ou un instantane
+precoce (cf. `exp_growing_pool` qui avait continue a progresser jusqu'a
+~300k). Comparaison ci-dessous a 5000 parties (au lieu de 3000, pour un peu
+plus de precision) :
+
+| | eval_avg(5000) | win_rate |
+|---|---|---|
+| heuristic (reference) | +8.07 | 51.7% |
+| imit.pt | +1.91 | 50.4% |
+| ppo_50000 (remesure a n=5000) | +17.90 | 53.9% |
+| **ppo_100000** | **+19.98** | **54.2%** |
+
+(Les chiffres `heuristic`/`imit.pt`/`ppo_50000` different legerement de la
+section precedente -- mesures a n=3000 vs n=5000, jeux de donnes differents,
+pas un changement reel.)
+
+**Lecture** : delta de +2.08 entre 100k et 50k. Avec un ecart-type empirique
+~228-230 pts/donne, l'IC95% a n=5000 est de l'ordre de +/-6 points -- ce
+delta reste dedans, pas distinguable du bruit. A prendre aussi avec la meme
+reserve que partout ailleurs cette session : le segment 50k->100k a un seed
+d'entrainement different (21 vs 20) du premier segment, donc "plus
+d'episodes" et "seed different" sont confondus, un seul run ne permet pas de
+les separer. **Conclusion : stable, pas de progres net detecte entre 50k et
+100k** -- cohérent avec un plateau atteint plutot qu'une tendance claire a
+continuer de s'ameliorer, mais pas prouve statistiquement pour l'instant.
+
+L'entrainement PPO ne sauvegarde pas l'etat de l'optimiseur Adam (moments
+m/v) entre deux segments -- chaque reprise (`--load`/`--load-value` dans un
+nouveau process) redemarre Adam "a froid" sur des poids deja entraines.
+Impact estime faible (quelques centaines de steps perturbes sur les ~100k
+de ce segment) et deja tolere dans la lignee REINFORCE par segments ; voir
+le docstring de `PPOPolicy.save()` (`train_ppo.py`) pour le detail.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - REINFORCE n'a pas encore de reference dans cette lignee (`seg_50000`
