@@ -220,10 +220,48 @@ un facteur independant -- a l'inverse de ce qu'on pensait apres le test
 `--no-counterfactual-baseline` (qui, lui, ne changeait que la CIBLE du
 critic, pas sa presence).
 
+## Validation multi-seeds : les deux conclusions ci-dessus ne tiennent PAS
+
+Les ablations `epochs=16` et `--no-critic-baseline` ci-dessus reposaient
+chacune sur un seul seed (20). Repete avec 2 seeds supplementaires (21, 22)
+pour les 3 configs (`epochs=8` critic, `epochs=16` critic, `epochs=16` sans
+critic), meme protocole d'eval (`eval_policy.py`, 5000 parties, seed=42) :
+
+| Config | seed20 | seed21 | seed22 | **moyenne** | **ecart-type** |
+|---|---|---|---|---|---|
+| epochs=8 (critic) | +19.98 | +23.45 | +20.34 | **21.26** | 1.91 |
+| epochs=16 (critic) | +27.00 | +23.51 | +18.55 | **23.02** | 4.25 |
+| epochs=16 (sans critic) | +18.89 | +21.30 | +19.69 | **19.96** | 1.23 |
+
+**Aucune des deux conclusions precedentes ne survit** :
+- `epochs=16` vs `epochs=8` : delta de moyennes +1.76, largement dans
+  l'ecart-type d'`epochs=16` lui-meme (4.25) -- pas significatif.
+- critic vs sans critic (a `epochs=16`) : delta de moyennes +3.06, meme
+  constat -- pas significatif.
+- Pire : le classement **s'inverse** selon le seed. A seed20, `epochs=16`
+  critic domine tout (+27.00). A seed22, c'est le **pire** des trois
+  (+18.55, derriere meme la version sans critic). Les deltas spectaculaires
+  mesures precedemment (+7.02 pour `epochs=16`, +8.11 pour le critic)
+  reposaient sur ce seed20 precis, un tirage favorable pour cette
+  combinaison -- pas une difference systematique.
+
+**Lecon** : la variance seed-a-seed (ecart-type jusqu'a 4.25 pts) est du
+meme ordre que les effets qu'on croyait avoir isoles sur un seul run. Les
+sections `epochs=16` et `--no-critic-baseline` ci-dessus sont conservees
+telles quelles (utiles comme illustration du risque), mais leurs
+conclusions sont invalidees par cette validation -- a ce stade, on ne peut
+pas distinguer ces 3 configs de facon fiable avec seulement 3 seeds chacune.
+Le seul constat qui reste solide : les 3 configs (moyennes 20-23) battent
+toutes nettement `heuristic` (+8.07) et `imit.pt` (+1.91).
+
 ## A refaire dans cette lignee si on veut poursuivre
 
-- Plusieurs seeds (`imit.pt`, PPO, REINFORCE) pour distinguer signal reel de
-  bruit de run -- aucune des comparaisons de cette lignee n'a ete repetee.
+- Plus de seeds encore (5-10+) si on veut vraiment distinguer `epochs=8` vs
+  `epochs=16` vs presence du critic -- 3 seeds ne suffisent pas vu la
+  variance observee.
+- Meme validation multi-seeds a faire sur `lr` (l'ablation initiale
+  8e-4/1e-4/3e-5/1e-5 et la comparaison a REINFORCE reposent aussi sur un
+  seul seed chacune) avant de considerer ces conclusions-la comme acquises.
 - Isoler proprement l'effet de la nouvelle feature d'etat : comparer PPO et
   REINFORCE avec et sans la feature, a lr et nombre d'episodes egaux, sans
   confondre avec le changement de lr ou de dimension d'etat comme c'est le
