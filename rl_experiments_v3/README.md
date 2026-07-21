@@ -84,10 +84,50 @@ Impact estime faible (quelques centaines de steps perturbes sur les ~100k
 de ce segment) et deja tolere dans la lignee REINFORCE par segments ; voir
 le docstring de `PPOPolicy.save()` (`train_ppo.py`) pour le detail.
 
+## Reference REINFORCE sur cette lignee (etat 167-dim)
+
+Deux runs REINFORCE (`train.py`, `CardNet`/`NeuralPolicy`) depuis ce meme
+`imit.pt`, 100k episodes chacun, `--opponent heuristic` (pas de pool/PFSP),
+`entropy-beta=0.002` constant (visible dans les logs) -- memes deux valeurs
+de `lr` que l'ablation PPO (`rl_experiments_v2/README.md`), pour tester
+directement la mise en garde methodologique de `remarques_rl.md` point 5 :
+le `lr=1e-4` de REINFORCE n'avait jamais ete revalide apres la correction de
+la regle 5 du scoring.
+
+## Comparaison complete (`eval_policy.py`, 5000 parties, seed=42)
+
+| Checkpoint | eval_avg(5000) | win_rate |
+|---|---|---|
+| **REINFORCE lr=3e-5, 100k** | **+25.14** | **55.3%** |
+| REINFORCE lr=1e-4, 100k | +21.07 | 54.3% |
+| PPO lr=3e-5, 100k | +19.98 | 54.2% |
+| PPO lr=3e-5, 50k | +17.90 | 53.9% |
+| heuristic | +8.07 | 51.7% |
+| imit.pt | +1.91 | 50.4% |
+
+**Constat central : REINFORCE reprend la tete une fois traite equitablement.**
+La conclusion "PPO bat REINFORCE" de `rl_experiments_v2` (+17.60 PPO vs
++15.22 `seg_50000`) reposait sur un REINFORCE dont le lr (1e-4) n'avait
+jamais ete revalide apres la regle 5 -- exactement la mise en garde deja
+documentee a l'epoque. Ici, a traitement egal (meme etat, meme lr teste des
+deux cotes, memes 100k episodes), REINFORCE `lr=3e-5` (+25.14) depasse
+nettement PPO `lr=3e-5` 100k (+19.98) ; meme REINFORCE `lr=1e-4` (+21.07),
+deja superieur a PPO, confirme que baisser le lr aide aussi REINFORCE (delta
++4.07 par rapport a son propre `lr=1e-4`, meme sens que l'ablation PPO --
+mais cet ecart reste lui aussi sous l'IC95% empirique a n=5000, ~+/-6 pts :
+suggestif, pas prouve, comme tout le reste de cette session sur un seul
+seed).
+
+**A retenir** : le facteur qui domine tous les ecarts observes cette session
+n'est ni l'algorithme (PPO vs REINFORCE) ni la nouvelle feature d'etat --
+c'est le `lr`, qui n'avait ete correctement calibre pour aucun des deux
+avant cette derniere serie de tests.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
-- REINFORCE n'a pas encore de reference dans cette lignee (`seg_50000`
-  equivalent a refaire avec le nouvel etat) -- necessaire pour toute
-  comparaison PPO vs REINFORCE valide ici.
-- Plusieurs seeds sur `imit.pt` et sur la config PPO pour distinguer signal
-  reel de bruit de run (cf. discussion generale sur la rigueur statistique).
+- Plusieurs seeds (`imit.pt`, PPO, REINFORCE) pour distinguer signal reel de
+  bruit de run -- aucune des comparaisons de cette lignee n'a ete repetee.
+- Isoler proprement l'effet de la nouvelle feature d'etat : comparer PPO et
+  REINFORCE avec et sans la feature, a lr et nombre d'episodes egaux, sans
+  confondre avec le changement de lr ou de dimension d'etat comme c'est le
+  cas dans les chiffres ci-dessus.
