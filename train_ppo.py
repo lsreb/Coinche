@@ -138,8 +138,10 @@ if torch is not None:
             timesteps d'une donne, recompense terminale), normalise, puis
             `self.epochs` passes en minibatches sur l'objectif clippe + perte
             de valeur (MSE) + bonus d'entropie. Vide le batch apres coup.
-            Retourne (policy_loss, value_loss, entropy) moyens, ou None si
-            rien n'etait accumule."""
+            Retourne (policy_loss, value_loss, entropy, clip_frac) moyens
+            (clip_frac : fraction des echantillons ou |ratio-1| > clip_eps,
+            diagnostic standard PPO -- mesure seulement, ne change rien au
+            comportement), ou None si rien n'etait accumule."""
             if not self._episodes:
                 return None
             states, actions, old_log_probs, old_values, masks, returns = [], [], [], [], [], []
@@ -171,7 +173,7 @@ if torch is not None:
 
             n = states.shape[0]
             order = list(range(n))
-            total_policy_loss = total_value_loss = total_entropy = 0.0
+            total_policy_loss = total_value_loss = total_entropy = total_clip_frac = 0.0
             n_updates = 0
             for _ in range(self.epochs):
                 random.shuffle(order)
@@ -193,6 +195,9 @@ if torch is not None:
                     value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
                     entropy = dist.entropy().mean()
                     loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+                    # Mesure seule (n'affecte pas loss/gradient) : a quelle frequence le clip
+                    # est-il reellement en jeu (|ratio-1| > clip_eps), convention standard PPO.
+                    clip_frac = ((ratio - 1.0).abs() > self.clip_eps).float().mean()
 
                     self.optimizer.zero_grad()
                     loss.backward()
@@ -201,9 +206,11 @@ if torch is not None:
                     total_policy_loss += policy_loss.item()
                     total_value_loss += value_loss.item()
                     total_entropy += entropy.item()
+                    total_clip_frac += clip_frac.item()
                     n_updates += 1
 
-            return total_policy_loss / n_updates, total_value_loss / n_updates, total_entropy / n_updates
+            return (total_policy_loss / n_updates, total_value_loss / n_updates,
+                    total_entropy / n_updates, total_clip_frac / n_updates)
 
         def save(self, path):
             """Checkpoint natif PPO : les deux reseaux independants dans un seul
@@ -357,7 +364,8 @@ def main():
             avg_eval, win_rate = evaluate(policy, args.eval_games, start_dealer=global_ep)
             elapsed = time.perf_counter() - start
             stats_str = (f"  policy_loss={last_stats[0]:+.4f}  value_loss={last_stats[1]:.4f}  "
-                         f"entropy={last_stats[2]:.3f}") if last_stats is not None else ""
+                         f"entropy={last_stats[2]:.3f}  clip_frac={100*last_stats[3]:4.1f}%"
+                         ) if last_stats is not None else ""
             print(f"episode {global_ep:6d}  train_avg={avg_train:+7.1f}  adv_avg={avg_adv:+7.1f}  "
                   f"eval_avg({args.eval_games})={avg_eval:+7.1f}  win_rate={100*win_rate:5.1f}%  "
                   f"entropy_coef={policy.entropy_coef:.4f}{stats_str}  ({elapsed:.1f}s)")
