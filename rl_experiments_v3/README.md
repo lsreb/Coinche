@@ -183,6 +183,43 @@ A tester ensuite si on veut pousser plus loin : `epochs=32` (en surveillant
 si `clip_frac` continue de monter significativement, signe qu'on approche
 la limite ou le clip commence a vraiment contraindre).
 
+## Ablation `--no-critic-baseline` (a `epochs=16`) : le critic compte, en interaction avec les epochs
+
+Suite a la discussion "le critic ne sert a rien, c'est le batching qui
+compte" (suggeree par `--no-counterfactual-baseline` sans effet detectable,
+cf. plus haut) : test direct en retirant la soustraction de la valeur
+predite dans l'avantage (`--no-critic-baseline`, nouveau flag -- l'avantage
+normalise devient alors un centrage sur la moyenne du batch courant, type
+REINFORCE mais scalaire par batch plutot que EMA globale ; `value_net`
+n'est ni appelee ni entrainee), a `epochs=16, lr=3e-5` sinon identique.
+
+| | eval_avg(5000) | win_rate |
+|---|---|---|
+| PPO epochs=16, **avec** critic | +27.00 | 55.7% |
+| PPO epochs=16, **sans** critic (`--no-critic-baseline`) | +18.89 | 54.1% |
+| *pour reference : PPO epochs=8, avec critic* | *+19.98* | *54.2%* |
+
+**Le critic compte bien** -- delta de -8.11 en le retirant, au-dessus de
+l'IC95%~+/-6 pts (le 2e delta de la session a clairement depasser le
+bruit, apres celui d'`epochs=16` lui-meme). Ca corrige/precise la
+conclusion precedente : ce n'est pas "le critic ne sert a rien, seul le
+batching compte" -- c'est que critic et epochs **interagissent**. Sans
+critic, `epochs=16` (+18.89) retombe au niveau d'`epochs=8` **avec** critic
+(+19.98, statistiquement indiscernables) : le gain qu'on avait attribue a
+"plus d'epochs" seul s'evapore quasiment sans le critic.
+
+**Interpretation** : le role du critic n'est pas d'etre precis (R2~0.06
+reste faible, cf. plus haut) mais de reduire un peu le bruit
+echantillon-par-echantillon de l'avantage. Avec plus d'epochs, on reutilise
+les MEMES estimations d'avantage plusieurs fois -- si elles sont bruitees
+(centrage sur la moyenne du batch seulement), chaque epoch supplementaire
+amplifie ce bruit plutot que d'extraire du signal reel ; avec un critic
+meme imparfait, cette reutilisation devient reellement profitable. Le
+benefice de `--epochs` depend donc de la presence du critic, ce n'est pas
+un facteur independant -- a l'inverse de ce qu'on pensait apres le test
+`--no-counterfactual-baseline` (qui, lui, ne changeait que la CIBLE du
+critic, pas sa presence).
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Plusieurs seeds (`imit.pt`, PPO, REINFORCE) pour distinguer signal reel de
