@@ -154,6 +154,35 @@ des echantillons ou le clip PPO (`|ratio-1| > clip_eps`) est reellement actif.
 Reste bas (~0.7-1.7%) tout du long a `lr=3e-5` -- le clipping intervient
 rarement a ce regime de lr.
 
+## Ablation `--epochs 16` (100k episodes) : le meilleur resultat de la session
+
+`clip_frac` restant bas (~0.7-1.7%) a `epochs=8, lr=3e-5` suggerait que le
+clipping n'intervenait quasiment jamais -- donc probablement de la marge
+pour reutiliser encore plus chaque batch avant que le clip ne freine
+reellement. Teste `epochs=16` (steps/episode passe de 2 a 4), sinon memes
+hyperparametres, 100k episodes directement (pas de segments).
+
+| | eval_avg(5000) | win_rate |
+|---|---|---|
+| **PPO epochs=16, 100k** | **+27.00** | **55.7%** |
+| REINFORCE lr=3e-5, 100k | +25.14 | 55.3% |
+| PPO epochs=8, 100k | +19.98 | 54.2% |
+
+**Le premier delta de la session qui depasse nettement l'IC95%** (+7.02 vs
+`epochs=8`, contre ~+/-6 pts a n=5000) -- le resultat le plus solide obtenu
+jusqu'ici, pas juste suggestif. `clip_frac` monte a ~2.5-4% (contre
+~0.7-1.7% a `epochs=8`), cohorent avec plus de reutilisation du batch, mais
+reste modere -- pas d'effondrement d'entropie (stable 0.15-0.22 tout du
+long). PPO revient au niveau de REINFORCE `lr=3e-5` (voire legerement
+au-dessus, delta +1.86, dans le bruit) une fois cette marge exploitee --
+confirme que le clipping avait bien encore de la place pour extraire plus
+d'apprentissage par episode collecte, l'avantage propre de PPO sur
+REINFORCE.
+
+A tester ensuite si on veut pousser plus loin : `epochs=32` (en surveillant
+si `clip_frac` continue de monter significativement, signe qu'on approche
+la limite ou le clip commence a vraiment contraindre).
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Plusieurs seeds (`imit.pt`, PPO, REINFORCE) pour distinguer signal reel de
