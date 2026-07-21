@@ -123,6 +123,37 @@ n'est ni l'algorithme (PPO vs REINFORCE) ni la nouvelle feature d'etat --
 c'est le `lr`, qui n'avait ete correctement calibre pour aucun des deux
 avant cette derniere serie de tests.
 
+## Ablation `--no-counterfactual-baseline` (PPO)
+
+Le critic PPO regresse en temps normal le retour CONTRE-FACTUEL
+(`reward - counterfactual_reward(...)`, point 3 de `remarques_rl.md`), un
+residuel faible a predire (R2~0.06 mesure plus tot). Sur le retour BRUT
+(`--no-counterfactual-baseline`), le critic a une tache bien plus facile
+(R2~0.28 mesure sur ce meme retour brut) -- teste pour voir si un signal de
+critic plus riche se traduit en meilleure performance finale, memes
+hyperparametres sinon (`lr=3e-5, epochs=8`, 50k episodes).
+
+| | eval_avg(5000) | win_rate |
+|---|---|---|
+| ppo_50000 (avec contre-factuel) | +17.90 | 53.9% |
+| ppo_50000 (`--no-counterfactual-baseline`) | +18.99 | 53.9% |
+
+**Aucune difference detectable** (delta +1.09, tres sous l'IC95%~+/-6 pts,
+meme win_rate). Lecture : le contre-factuel et le critic visent tous les
+deux a retirer la meme composante de variance ("chance de la donne"), juste
+par des voies differentes -- le contre-factuel via une info retrospective
+privilegiee (rejouer la donne entiere a l'heuristique) qu'aucun critic ne
+peut reconstituer depuis un etat partiel, le critic via une regression
+apprise sur le retour brut. Les deux methodes semblent se substituer plutot
+que se cumuler, d'ou un resultat final similaire malgre un R2 de critic tres
+different entre les deux configs.
+
+Diagnostic complementaire ajoute a cette occasion (mesure seule, ne change
+rien au comportement) : `clip_frac` dans les logs `train_ppo.py`, fraction
+des echantillons ou le clip PPO (`|ratio-1| > clip_eps`) est reellement actif.
+Reste bas (~0.7-1.7%) tout du long a `lr=3e-5` -- le clipping intervient
+rarement a ce regime de lr.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Plusieurs seeds (`imit.pt`, PPO, REINFORCE) pour distinguer signal reel de
