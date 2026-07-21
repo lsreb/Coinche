@@ -83,7 +83,7 @@ if torch is not None:
         `self._traj` ; `record=False` (evaluation) joue en glouton (argmax)
         sans rien memoriser."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
-                     entropy_coef=0.01, epochs=4, minibatch_size=64):
+                     entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False):
             self.device = device
             self.policy_net = CardNet().to(device)
             self.value_net = ValueNet().to(device)
@@ -94,6 +94,10 @@ if torch is not None:
             self.entropy_coef = entropy_coef
             self.epochs = epochs
             self.minibatch_size = minibatch_size
+            # Si True : avantage = retour (centre/normalise sur la moyenne du BATCH courant,
+            # cf. update_batch), value_net ni utilisee ni entrainee -- teste si un critic par
+            # etat apporte quoi que ce soit par rapport a un simple scalaire type REINFORCE.
+            self.no_critic_baseline = no_critic_baseline
             self.record = True
             self._traj = []       # (etat, action_idx, log_prob, valeur, masque) de la donne en cours
             self._episodes = []   # [(traj, retour)] accumules depuis la derniere update_batch()
@@ -138,6 +142,11 @@ if torch is not None:
             timesteps d'une donne, recompense terminale), normalise, puis
             `self.epochs` passes en minibatches sur l'objectif clippe + perte
             de valeur (MSE) + bonus d'entropie. Vide le batch apres coup.
+            Si `self.no_critic_baseline` : pas de soustraction de valeur
+            predite -- l'avantage normalise ci-dessous devient alors un
+            centrage sur la moyenne du BATCH courant (type REINFORCE, mais
+            scalaire par batch plutot que EMA globale), `value_net` n'est ni
+            appelee ni entrainee (`value_loss` renvoyee a 0).
             Retourne (policy_loss, value_loss, entropy, clip_frac) moyens
             (clip_frac : fraction des echantillons ou |ratio-1| > clip_eps,
             diagnostic standard PPO -- mesure seulement, ne change rien au
@@ -161,7 +170,7 @@ if torch is not None:
             old_values = torch.stack(old_values)
             masks = torch.stack(masks)
             returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
-            advantages = returns - old_values
+            advantages = returns if self.no_critic_baseline else returns - old_values
             # Echelle des retours bruts (~centaines de points, cf. rl_experiments_v2/README.md) :
             # sans ca, value_loss (MSE sur ces retours) domine policy_loss (sur avantage normalise,
             # O(1)) de plusieurs ordres de grandeur -- policy_net et value_net sont desormais des
@@ -180,7 +189,6 @@ if torch is not None:
                 for start in range(0, n, self.minibatch_size):
                     mb = torch.tensor(order[start:start + self.minibatch_size], dtype=torch.long, device=self.device)
                     logits = self.policy_net(states[mb])
-                    values = self.value_net(states[mb])
                     # Reappliquer le masque des coups legaux (choose_card) : sans lui, new_log_probs
                     # est calcule sous une distribution sur les 32 slots (dont des coups illegaux),
                     # differente de celle sous laquelle old_log_probs a ete echantillonne -- le ratio
@@ -192,9 +200,14 @@ if torch is not None:
                     surr1 = ratio * adv
                     surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * adv
                     policy_loss = -torch.min(surr1, surr2).mean()
-                    value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
                     entropy = dist.entropy().mean()
-                    loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+                    if self.no_critic_baseline:
+                        value_loss = torch.tensor(0.0)
+                        loss = policy_loss - self.entropy_coef * entropy
+                    else:
+                        values = self.value_net(states[mb])
+                        value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
+                        loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
                     # Mesure seule (n'affecte pas loss/gradient) : a quelle frequence le clip
                     # est-il reellement en jeu (|ratio-1| > clip_eps), convention standard PPO.
                     clip_frac = ((ratio - 1.0).abs() > self.clip_eps).float().mean()
@@ -278,6 +291,11 @@ def main():
     parser.add_argument('--no-counterfactual-baseline', action='store_true',
                          help="Desactive le contre-factuel (remarques_rl.md point 3) : utilise le reward "
                               "brut directement comme retour PPO.")
+    parser.add_argument('--no-critic-baseline', action='store_true',
+                         help="Desactive la soustraction de la valeur predite dans l'avantage -- value_net "
+                              "n'est ni appelee ni entrainee. Teste si un critic par etat apporte quoi que "
+                              "ce soit par rapport a un simple centrage sur la moyenne du batch (cf. "
+                              "update_batch). Axe independant de --no-counterfactual-baseline.")
     parser.add_argument('--opponent', default='heuristic',
                          help="Adversaire(s) aux sieges 1/3, separes par des virgules : meme semantique que "
                               "train.py --opponent (heuristic et/ou chemins de poids, pool si plusieurs).")
@@ -313,7 +331,8 @@ def main():
                            temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
 
     policy = PPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
-                        entropy_coef=args.entropy_coef, epochs=args.epochs, minibatch_size=args.minibatch_size)
+                        entropy_coef=args.entropy_coef, epochs=args.epochs, minibatch_size=args.minibatch_size,
+                        no_critic_baseline=args.no_critic_baseline)
     if args.load:
         policy.load(args.load)
         print('poids charges depuis', args.load)
