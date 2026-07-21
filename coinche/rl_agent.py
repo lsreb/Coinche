@@ -6,7 +6,7 @@ try:
 except Exception:
     torch = None
 
-from .game import SUITS, TRUMP_ORDER, NORMAL_ORDER
+from .game import SUITS, TRUMP_ORDER, NORMAL_ORDER, Card
 
 TRUMP_TYPES = ['P', 'C', 'K', 'T', 'SA', 'TA']
 
@@ -181,6 +181,31 @@ def _led_suit_vec(player, trick, suits) -> list:
     return v
 
 
+def _points_so_far(player, trump, engine) -> list:
+    """Points de cartes deja engranges par mon camp et par l'adversaire dans
+    les plis COMPLETS de cette donne (le pli en cours n'est pas encore gagne
+    par personne), normalises par un total de reference (152 points de cartes
+    + 10 de der = 162 -- l'echelle reelle differe legerement a TA/SA, mais
+    `trump_vec` permet au reseau de contextualiser). N'inclut ni le 10 de der
+    (connu seulement a la toute fin du dernier pli) ni la belote (cf. l'ecart
+    documente dans CLAUDE.md entre "credite au pli" et l'implementation
+    reelle sur la main initiale, hors-scope ici) -- seulement les points de
+    cartes bruts des plis deja remportes, pour rester simple et sans ambiguite."""
+    seat = getattr(player, 'seat', 0)
+    mine, opp = 0, 0
+    if engine is not None and getattr(engine, 'history', None):
+        for t in engine.history.get('tricks', []):
+            trick_points = sum(
+                engine.card_point(Card(p['card'][-1], p['card'][:-1]), trump)
+                for p in t['plays']
+            )
+            if t['winner'] % 2 == seat % 2:
+                mine += trick_points
+            else:
+                opp += trick_points
+    return [mine / 162.0, opp / 162.0]
+
+
 def _current_trick_winner_seat(trick, trump, engine):
     """Siège actuellement maître du pli en cours (avant que `player` ne joue sa
     carte), ou None si le pli est vide. Réutilise `card_order_key` du moteur
@@ -208,9 +233,10 @@ def encode_state(player, trick, trump) -> list:
 
     S'y ajoutent des features dérivées résumant ce qu'un joueur réel calcule
     naturellement (longueur de couleur, cartes inconnues restantes, niveau du
-    contrat, coinche, partenaire maître du pli) : le réseau n'a plus à les
-    reconstituer lui-même par comptage depuis les multi-hot bruts, ce qui
-    accélère l'apprentissage sans retirer l'information brute sous-jacente."""
+    contrat, coinche, partenaire maître du pli, points de plis déjà engrangés
+    par camp) : le réseau n'a plus à les reconstituer lui-même par comptage
+    depuis les multi-hot bruts, ce qui accélère l'apprentissage sans retirer
+    l'information brute sous-jacente."""
     engine = getattr(player, 'engine', None)
     taker = getattr(engine, 'taker_idx', None)
     seat = getattr(player, 'seat', 0)
@@ -248,6 +274,11 @@ def encode_state(player, trick, trump) -> list:
     level_scalar = (getattr(contract, 'level', 0) or 0) / 250.0
     coinched_scalar = 1.0 if getattr(contract, 'coinched', False) else 0.0
 
+    # Points de cartes deja engranges par mon camp / l'adversaire dans les plis
+    # complets -- absent jusqu'ici de l'etat (remarques_rl.md) alors que c'est
+    # un signal direct pour le critic (approche la grandeur qu'il regresse).
+    points_vec = _points_so_far(player, trump, engine)
+
     winner_seat = _current_trick_winner_seat(trick, trump, engine)
     partner_winning = 1.0 if (winner_seat is not None and winner_seat == (seat + 2) % 4) else 0.0
 
@@ -266,11 +297,11 @@ def encode_state(player, trick, trump) -> list:
 
     return (hand_vec + played_vec + trick_vec + lead_vec + pos_vec + trump_vec
             + [is_attacker, is_taker] + length_vec + unknown_vec
-            + [level_scalar, coinched_scalar, partner_winning] + void_vec
+            + [level_scalar, coinched_scalar, partner_winning] + points_vec + void_vec
             + auction_vec + led_vec)
 
 
-STATE_DIM = 32 + 32 + 32 + 4 + 4 + 6 + 2 + 4 + 4 + 3 + 12 + 18 + 12  # 165
+STATE_DIM = 32 + 32 + 32 + 4 + 4 + 6 + 2 + 4 + 4 + 3 + 2 + 12 + 18 + 12  # 167
 
 
 class SimplePolicy:
