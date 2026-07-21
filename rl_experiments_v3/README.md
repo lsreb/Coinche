@@ -254,14 +254,51 @@ pas distinguer ces 3 configs de facon fiable avec seulement 3 seeds chacune.
 Le seul constat qui reste solide : les 3 configs (moyennes 20-23) battent
 toutes nettement `heuristic` (+8.07) et `imit.pt` (+1.91).
 
+## Re-evaluation a 45000 parties : une bonne partie du "bruit seed" etait du bruit de mesure
+
+Meme 9 checkpoints, re-evalues a `--games 45000` (au lieu de 5000) pour
+separer le bruit de mesure (echantillon fini de parties) du vrai bruit
+d'entrainement (cf. discussion generale sur la precision d'evaluation).
+
+**`heuristic` contre lui-meme passe de +8.07 (n=5000) a -0.51 (n=45000)** --
+bien plus proche de ce qu'on attend par symetrie (0). Toute la session a
+calcule ses deltas contre une reference elle-meme bruitee a n=3000-5000.
+
+| Config | seed20 | seed21 | seed22 | moyenne | ecart-type (etait a n=5000) |
+|---|---|---|---|---|---|
+| epochs=8 (critic) | +14.81 | +15.56 | +15.01 | 15.13 | **0.39** (etait 1.91) |
+| epochs=16 (critic) | +14.07 | +15.42 | +10.84 | 13.44 | **2.35** (etait 4.25) |
+| epochs=16 (sans critic) | +14.89 | +13.64 | +13.80 | 14.11 | **0.68** (etait 1.23) |
+
+**Confirme** : pour `epochs=8` et `sans critic`, l'ecart-type s'effondre
+presque a zero -- la quasi-totalite de la variance mesuree a n=5000 etait
+du bruit d'evaluation, pas une vraie difference entre seeds (les 3 seeds
+de chaque groupe sont maintenant quasi indiscernables).
+
+**Mais `epochs=16` reste nettement plus disperse** (2.35, contre 0.39 et
+0.68) meme a cette precision -- ce n'est plus du bruit de mesure, c'est un
+signal reel : `epochs=16` semble intrinsequement une config **plus
+instable** d'un seed a l'autre que `epochs=8`, cohorent avec l'intuition
+que reutiliser davantage le batch augmente le risque de "coller" au bruit
+specifique de ce batch plutot que d'apprendre un signal qui generalise.
+
+Les 3 moyennes (15.13 / 13.44 / 14.11) sont maintenant tres proches --
+`epochs=16` est meme legerement la PLUS BASSE des trois (inverse de la
+conclusion initiale "epochs=16 est le meilleur"), meme si ce n'est pas net
+vu sa propre variance. **A ce stade, aucune des 3 configs ne se distingue
+clairement des deux autres** ; le seul constat solide reste qu'elles
+battent toutes nettement `heuristic` (desormais mesure a -0.51, pas +8.07).
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Plus de seeds encore (5-10+) si on veut vraiment distinguer `epochs=8` vs
   `epochs=16` vs presence du critic -- 3 seeds ne suffisent pas vu la
-  variance observee.
+  variance observee, meme reduite a n=45000.
 - Meme validation multi-seeds a faire sur `lr` (l'ablation initiale
   8e-4/1e-4/3e-5/1e-5 et la comparaison a REINFORCE reposent aussi sur un
-  seul seed chacune) avant de considerer ces conclusions-la comme acquises.
+  seul seed chacune) avant de considerer ces conclusions-la comme acquises
+  -- et re-evaluer a plus grand n, vu que la reference `heuristic` elle-meme
+  s'est reveler bruitee a n=3000-5000.
 - Isoler proprement l'effet de la nouvelle feature d'etat : comparer PPO et
   REINFORCE avec et sans la feature, a lr et nombre d'episodes egaux, sans
   confondre avec le changement de lr ou de dimension d'etat comme c'est le
