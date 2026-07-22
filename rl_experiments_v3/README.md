@@ -289,6 +289,34 @@ vu sa propre variance. **A ce stade, aucune des 3 configs ne se distingue
 clairement des deux autres** ; le seul constat solide reste qu'elles
 battent toutes nettement `heuristic` (desormais mesure a -0.51, pas +8.07).
 
+## `epochs=16` a 7 seeds : la variance elevee se confirme, pas juste du petit echantillon
+
+4 seeds de plus (23-26) pour `epochs=16` uniquement (`epochs=8` et `sans
+critic` restent a n=3 -- cf. discussion sur le calcul de puissance : ca
+suffit pour cette comparaison precise, la variance des deux autres etant
+deja tres faible). Valeurs a n=45000 : 14.07, 15.42, 10.84, 8.29, 12.74,
+16.97, 15.63.
+
+**Moyenne ≈ 13.42, ecart-type ≈ 3.04** (n=7).
+
+- **La moyenne n'a presque pas bouge** (13.44 a n=3 -> 13.42 a n=7) --
+  c'est une estimation maintenant assez stable.
+- **L'ecart-type n'a pas baisse, il a meme legerement augmente** (2.35 a
+  n=3 -> 3.04 a n=7) -- ce n'etait donc pas un artefact de petit
+  echantillon qui allait se resorber avec plus de seeds. `epochs=16` a
+  bien une vraie dispersion large et desormais confirmee (de +8.29 a
+  +16.97 selon le seed, un ecart de 8.7 points).
+- La moyenne d'`epochs=16` (13.42) reste la **plus basse** des trois
+  configs, et l'ecart avec `epochs=8` (1.71 pts, SE combine ~1.17, t≈1.46)
+  commence a devenir suggestif sans etre encore une preuve ferme.
+
+**Conclusion** : `epochs=16` n'est pas juste "pas prouve meilleur" comme on
+le pensait a n=3 -- les donnees supplementaires penchent maintenant plutot
+vers "probablement pas meilleur, et plus instable". `epochs=8` reste le
+choix le plus defendable par defaut : moyenne au moins aussi bonne, et
+ecart-type bien plus faible (0.39 contre 3.04) -- un resultat fiable plutot
+qu'une loterie entre tres bon et mediocre.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Plus de seeds encore (5-10+) si on veut vraiment distinguer `epochs=8` vs
