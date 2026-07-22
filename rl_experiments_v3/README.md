@@ -317,17 +317,41 @@ choix le plus defendable par defaut : moyenne au moins aussi bonne, et
 ecart-type bien plus faible (0.39 contre 3.04) -- un resultat fiable plutot
 qu'une loterie entre tres bon et mediocre.
 
+## REINFORCE a 4 seeds par lr : "PPO bat REINFORCE" et "REINFORCE bat PPO" etaient tous les deux faux
+
+Meme traitement que pour `epochs` : 3 seeds supplementaires (21-23) pour
+REINFORCE `lr=3e-5` et `lr=1e-4` (en plus du seed original), re-evalues a
+`--games 45000`.
+
+| lr | valeurs (n=4) | moyenne | ecart-type |
+|---|---|---|---|
+| `3e-5` | 15.39, 15.56, 14.67, 14.98 | **15.15** | **0.40** |
+| `1e-4` | 14.34, 16.89, 13.87, 15.17 | **15.07** | 1.33 |
+
+**La conclusion "baisser le lr aide aussi REINFORCE" s'effondre** : delta de
+moyennes de 0.08 (contre +4.07 sur la comparaison a un seul seed, +25.14 vs
++21.07, qui semblait nette). Les deux lr donnent en realite la meme
+performance a REINFORCE.
+
+**Et ca referme la comparaison PPO vs REINFORCE de toute la lignee v3** :
+`epochs=8` (PPO, valide a 3 seeds) donne moyenne **15.13**, ecart-type
+**0.39**. REINFORCE `lr=3e-5` donne moyenne **15.15**, ecart-type **0.40**.
+Quasi identiques. Ni "PPO bat REINFORCE" (conclusion initiale de cette
+lignee, sur un seul seed chacun) ni "REINFORCE bat PPO" (conclusion
+suivante, apres avoir corrige le lr de REINFORCE, toujours sur un seul
+seed) ne tenaient -- les deux algorithmes convergent essentiellement vers
+la meme performance sur cette tache (~15 points au-dessus d'`heuristic`,
+desormais mesure de facon fiable a -0.51 et non +7 a +8 comme au debut de
+la session).
+
 ## A refaire dans cette lignee si on veut poursuivre
 
-- Plus de seeds encore (5-10+) si on veut vraiment distinguer `epochs=8` vs
-  `epochs=16` vs presence du critic -- 3 seeds ne suffisent pas vu la
-  variance observee, meme reduite a n=45000.
-- Meme validation multi-seeds a faire sur `lr` (l'ablation initiale
-  8e-4/1e-4/3e-5/1e-5 et la comparaison a REINFORCE reposent aussi sur un
-  seul seed chacune) avant de considerer ces conclusions-la comme acquises
-  -- et re-evaluer a plus grand n, vu que la reference `heuristic` elle-meme
-  s'est reveler bruitee a n=3000-5000.
 - Isoler proprement l'effet de la nouvelle feature d'etat : comparer PPO et
   REINFORCE avec et sans la feature, a lr et nombre d'episodes egaux, sans
   confondre avec le changement de lr ou de dimension d'etat comme c'est le
   cas dans les chiffres ci-dessus.
+- Si on veut vraiment distinguer `epochs=8` (PPO) de REINFORCE `lr=1e-4`
+  (le seul groupe encore avec un ecart-type notable, 1.33) des deux options
+  a variance minimale (`epochs=8` PPO, REINFORCE `lr=3e-5`), plus de seeds
+  seraient necessaires -- mais l'essentiel est deja tranche : aucun des deux
+  algorithmes ne domine l'autre sur cette tache.
