@@ -372,6 +372,59 @@ trois tentatives de la session pour le rendre utile (pre-entrainement,
 cible plus riche, presence/absence) n'ont jamais tenu une fois testees
 rigoureusement.
 
+## Critic centralise (CTDE) : `encode_full_state` (263-dim) reserve au ValueNet
+
+Le critic a information partielle plafonne (R2~0.04-0.06, cf. section
+precedente) a cause de l'information cachee (mains adverses). Teste donc un
+critic **centralise** : `ValueNet` prend desormais `encode_full_state`
+(`coinche/rl_agent.py`) = `encode_state` (167-dim, ce que voit l'acteur) +
+les mains ACTUELLES des 3 autres sieges (3*32=96-dim) = 263-dim
+(`FULL_STATE_DIM`). Seul le critic voit cette information privilegiee --
+l'acteur (`CardNet`, reseau independant) continue de decider a partir des
+seules 167 dimensions de `encode_state`, exactement comme avant. Disponible
+uniquement parce que l'entrainement simule la donne entiere (les 4 mains
+sont connues du process) ; jamais utilisable en jeu reel. Analogue a un
+joueur humain qui revoit sa donne apres coup avec toute l'information
+revelee pour mieux juger ses choix, sans que ca change ce qu'il pouvait
+voir au moment de jouer.
+
+Meme protocole que le reste de cette section : 3 seeds (20/21/22), memes
+hyperparametres que la config `epochs=8` deja validee (`lr=3e-5, epochs=8,
+100k episodes`), evalues sur les memes 45000 donnes fixees (`seed=42`).
+
+| | valeurs (n=3) | moyenne | ecart-type |
+|---|---|---|---|
+| critic partiel (`encode_state`, epochs=8, reference) | 14.81, 15.56, 15.01 | 15.13 | 0.39 |
+| critic centralise (`encode_full_state`, memes hyperparametres) | 16.25, 16.32, 17.69 | **16.75** | 0.81 |
+
+**Delta de moyennes +1.63** (~11% de mieux que l'avantage de +15.13 sur
+`heuristic`), et **separation complete** entre les deux groupes : le
+minimum du groupe centralise (16.25) depasse le maximum du groupe partiel
+(15.56) -- le signal le plus net qu'un plan a n=3 vs n=3 puisse produire
+(test de permutation unilateral sur les rangs : p=0.05 exactement, la
+meilleure valeur atteignable a cette taille d'echantillon). Un test de
+Welch sur ces memes chiffres donne t=3.13 (df≈2.9), juste EN-DESSOUS du
+seuil conventionnel a deux queues (t_crit≈3.18 a df=3) -- borderline, dans
+la meme veine que le reste de cette section.
+
+Point de vigilance : l'ecart-type du groupe centralise (0.81) est deja
+environ le double de celui des configs stables de cette lignee (0.39-0.40
+pour `epochs=8` PPO et REINFORCE `lr=3e-5`) -- le meme signal precurseur
+qui, pour `epochs=16`, s'est revele annoncer une vraie instabilite de seed
+une fois mesuree a n=7 (ecart-type 3.04). Rien ne dit que ce soit le cas
+ici, mais rien ne l'exclut non plus a n=3.
+
+**Verdict prudent** : le critic centralise semble aider (+1.63 en moyenne,
+separation complete des 3+3 seeds valeurs) -- c'est, a ce stade de la
+session, le seul essai sur le critic qui montre un effet dans le sens
+attendu plutot que de s'effondrer sous test rigoureux. Mais n=3 vs n=3 est
+la plus petite base justifiable dans la methodologie appliquee tout au
+long de ce README : ce n'est pas encore le niveau de confiance des autres
+conclusions tranchees ici (`epochs=8` vs REINFORCE, `epochs=16` moins
+stable, absence d'effet du critic partiel). 3-4 seeds de plus de chaque
+cote permettraient de confirmer -- ou de degonfler, comme tant d'autres
+resultats prometteurs de cette session -- ce delta.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Isoler proprement l'effet de la nouvelle feature d'etat : comparer PPO et
@@ -383,3 +436,7 @@ rigoureusement.
   a variance minimale (`epochs=8` PPO, REINFORCE `lr=3e-5`), plus de seeds
   seraient necessaires -- mais l'essentiel est deja tranche : aucun des deux
   algorithmes ne domine l'autre sur cette tache.
+- Confirmer (ou degonfler) le delta du critic centralise : n=3 vs n=3
+  donne +1.63 avec separation complete mais un test de Welch borderline
+  (t=3.13, juste sous le seuil a df≈2.9) -- 3-4 seeds de plus de chaque
+  cote trancheraient dans la meme veine que le reste de cette section.
