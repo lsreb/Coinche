@@ -304,6 +304,39 @@ def encode_state(player, trick, trump) -> list:
 STATE_DIM = 32 + 32 + 32 + 4 + 4 + 6 + 2 + 4 + 4 + 3 + 2 + 12 + 18 + 12  # 167
 
 
+def _other_hands_vec(player, suits, orders) -> list:
+    """Mains ACTUELLES des 3 autres sieges (ordre relatif a mon siege, comme
+    void_vec/auction_vec/led_vec) -- information privilegiee que l'acteur ne
+    voit jamais (il ne connait que sa propre main), reservee au critic
+    centralise (cf. encode_full_state) : en simulation d'entrainement les 4
+    mains sont connues du process, meme si un joueur reel ne les verrait pas."""
+    engine = getattr(player, 'engine', None)
+    seat = getattr(player, 'seat', 0)
+    v = []
+    for offset in (1, 2, 3):
+        other_seat = (seat + offset) % 4
+        other_hand = engine.players[other_seat].hand if engine is not None else []
+        v.extend(_relative_multi_hot(other_hand, suits, orders))
+    return v
+
+
+def encode_full_state(player, trick, trump) -> list:
+    """Etat CENTRALISE pour le critic : encode_state() (ce qu'un joueur reel
+    voit) + les mains actuelles des 3 autres sieges -- information
+    privilegiee, disponible seulement parce qu'on simule la donne en entier
+    a l'entrainement, jamais utilisable par l'acteur en jeu reel. Analogue a
+    un joueur humain qui revoit la donne complete apres coup pour comprendre
+    ce qu'il aurait fallu faire : le critic apprend depuis cette vue
+    complete, l'acteur continue de decider depuis sa vue partielle
+    (encode_state) -- les deux sont des reseaux independants (ValueNet vs
+    CardNet, train_ppo.py), donc rien n'empeche cette asymetrie d'info."""
+    suits, orders = _canonical_slots(trump)
+    return encode_state(player, trick, trump) + _other_hands_vec(player, suits, orders)
+
+
+FULL_STATE_DIM = STATE_DIM + 3 * 32  # 167 + 96 = 263
+
+
 class SimplePolicy:
     """Politique aléatoire (parmi les coups légaux) : repli sans torch, et
     adversaire de référence pour vérifier qu'une policy entraînée progresse."""

@@ -32,7 +32,7 @@ import time
 
 from coinche.game import GameEngine
 from coinche.players import HeuristicPlayer, RLPlayer
-from coinche.rl_agent import encode_state, torch
+from coinche.rl_agent import encode_full_state, torch
 from train import counterfactual_reward
 from train_ppo import PPOPolicy, ValueNet
 
@@ -55,7 +55,9 @@ def collect_dataset(policy, n_games, seed=None):
 
     orig_choose_card = policy.choose_card
     def instrumented(player, legal, leader, trick, trump):
-        current.append(encode_state(player, trick, trump))
+        # encode_full_state (pas encode_state) : ValueNet est desormais un critic
+        # centralise (cf. train_ppo.py), meme convention que choose_card.
+        current.append(encode_full_state(player, trick, trump))
         return orig_choose_card(player, legal, leader, trick, trump)
     policy.choose_card = instrumented
     policy.record = False  # etats representatifs de la meilleure reponse de la policy, pas d'exploration bruitee

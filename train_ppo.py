@@ -33,6 +33,17 @@ attaque/defense meme apres 50k episodes (cf. remarques_rl.md) -- pre-entrainer
 `ValueNet` par regression supervisee du retour final (`pretrain_value.py`,
 analogue value de `pretrain.py`) avant le fine-tuning PPO est donc recommande.
 
+`ValueNet` est aussi un critic CENTRALISE (`encode_full_state`, cf.
+rl_agent.py) : contrairement a la policy, qui ne voit que ce qu'un joueur
+reel verrait, le critic recoit en plus les mains actuelles des 3 autres
+sieges -- info privilegiee, connue seulement parce qu'on simule la donne en
+entier a l'entrainement, jamais disponible a l'acteur en jeu reel. Motive
+par le plafond bas mesure pour un critic a info partielle (R2~0.04-0.06
+meme bien entraine, cf. remarques_rl.md) : la variance de ce jeu est
+dominee par de l'information cachee qu'aucun critic conditionne sur un etat
+partiel ne peut deviner, mais rien n'empeche de lever ce plafond pour le
+critic puisqu'il est deja un reseau independant de la policy.
+
 Usage:
     python train_ppo.py --episodes 5000 --eval-every 200
     python train_ppo.py --episodes 2000 --load poids.pt --save poids.pt
@@ -47,7 +58,10 @@ import time
 import torch.nn as nn
 import torch.nn.functional as F
 
-from coinche.rl_agent import STATE_DIM, CardNet, encode_state, _canonical_slots, _slot_index, torch
+from coinche.rl_agent import (
+    STATE_DIM, FULL_STATE_DIM, CardNet, encode_state, encode_full_state,
+    _canonical_slots, _slot_index, torch,
+)
 from train import (
     build_opponent_pool, PFSPSampler, run_episode, counterfactual_reward,
     evaluate, entropy_beta_for_episode,
@@ -64,8 +78,17 @@ if torch is not None:
         une feature d'entree directe) alors que l'ecart reel de retour entre
         les deux est enorme -- le gradient de value_loss sur ce tronc partage
         etait ecrase par celui de policy_loss. Un tronc dedie, pre-entrainable
-        independamment (pretrain_value.py), evite cette concurrence."""
-        def __init__(self, in_dim=STATE_DIM, hidden=128):
+        independamment (pretrain_value.py), evite cette concurrence.
+
+        Prend en entree FULL_STATE_DIM (encode_full_state), pas STATE_DIM :
+        critic CENTRALISE, qui voit aussi les mains des 3 autres sieges (info
+        privilegiee, connue seulement en simulation d'entrainement, jamais par
+        l'acteur en jeu reel -- cf. remarques_rl.md, motive par le plafond bas
+        du critic a info partielle : R2~0.04-0.06 meme bien entraine, faute de
+        pouvoir deviner les mains adverses). Rien n'empeche cette asymetrie
+        info-partielle-pour-l'acteur / info-complete-pour-le-critic puisque
+        les deux sont des reseaux independants."""
+        def __init__(self, in_dim=FULL_STATE_DIM, hidden=128):
             super().__init__()
             self.fc1 = nn.Linear(in_dim, hidden)
             self.value_head = nn.Linear(hidden, 1)
@@ -79,9 +102,9 @@ if torch is not None:
         """Interface compatible RLPlayer/run_episode/evaluate (choose_card,
         record, save, load) pour reutiliser telles quelles les fonctions de
         train.py. `record=True` (par defaut) echantillonne et memorise
-        (etat, action, log-prob, valeur, masque des coups legaux) dans
-        `self._traj` ; `record=False` (evaluation) joue en glouton (argmax)
-        sans rien memoriser."""
+        (etat visible par l'acteur, etat centralise pour le critic, log-prob,
+        valeur, masque des coups legaux) dans `self._traj` ; `record=False`
+        (evaluation) joue en glouton (argmax) sans rien memoriser."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
                      entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False):
             self.device = device
@@ -99,13 +122,12 @@ if torch is not None:
             # etat apporte quoi que ce soit par rapport a un simple scalaire type REINFORCE.
             self.no_critic_baseline = no_critic_baseline
             self.record = True
-            self._traj = []       # (etat, action_idx, log_prob, valeur, masque) de la donne en cours
+            self._traj = []       # (etat, etat_complet, action_idx, log_prob, valeur, masque) de la donne en cours
             self._episodes = []   # [(traj, retour)] accumules depuis la derniere update_batch()
 
         def choose_card(self, player, legal, leader, trick, trump):
             x = torch.tensor(encode_state(player, trick, trump), dtype=torch.float32, device=self.device)
             logits = self.policy_net(x)
-            value = self.value_net(x)
             suits, orders = _canonical_slots(trump)
             mask = torch.full((32,), float('-inf'), device=self.device)
             legal_idx = [_slot_index(c.suit, c.rank, suits, orders) for c in legal]
@@ -113,9 +135,14 @@ if torch is not None:
             masked_logits = logits + mask
 
             if self.record:
+                # Etat centralise (mains adverses incluses) uniquement pour le critic,
+                # jamais pour la policy ci-dessus -- cf. docstring de ValueNet.
+                x_full = torch.tensor(encode_full_state(player, trick, trump),
+                                       dtype=torch.float32, device=self.device)
+                value = self.value_net(x_full)
                 dist = torch.distributions.Categorical(logits=masked_logits)
                 action_idx = dist.sample()
-                self._traj.append((x.detach(), int(action_idx.item()),
+                self._traj.append((x.detach(), x_full.detach(), int(action_idx.item()),
                                     dist.log_prob(action_idx).detach(), value.detach(),
                                     mask.detach()))
             else:
@@ -153,10 +180,11 @@ if torch is not None:
             comportement), ou None si rien n'etait accumule."""
             if not self._episodes:
                 return None
-            states, actions, old_log_probs, old_values, masks, returns = [], [], [], [], [], []
+            states, full_states, actions, old_log_probs, old_values, masks, returns = [], [], [], [], [], [], []
             for traj, reward in self._episodes:
-                for x, action_idx, old_lp, old_v, mask in traj:
+                for x, x_full, action_idx, old_lp, old_v, mask in traj:
                     states.append(x)
+                    full_states.append(x_full)
                     actions.append(action_idx)
                     old_log_probs.append(old_lp)
                     old_values.append(old_v)
@@ -165,6 +193,7 @@ if torch is not None:
             self._episodes = []
 
             states = torch.stack(states)
+            full_states = torch.stack(full_states)
             actions = torch.tensor(actions, dtype=torch.long, device=self.device)
             old_log_probs = torch.stack(old_log_probs)
             old_values = torch.stack(old_values)
@@ -205,7 +234,7 @@ if torch is not None:
                         value_loss = torch.tensor(0.0)
                         loss = policy_loss - self.entropy_coef * entropy
                     else:
-                        values = self.value_net(states[mb])
+                        values = self.value_net(full_states[mb])
                         value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
                         loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
                     # Mesure seule (n'affecte pas loss/gradient) : a quelle frequence le clip
