@@ -344,6 +344,34 @@ la meme performance sur cette tache (~15 points au-dessus d'`heuristic`,
 desormais mesure de facon fiable a -0.51 et non +7 a +8 comme au debut de
 la session).
 
+## `--no-critic-baseline` re-evalue a 45000 : la conclusion "le critic compte" s'effondre aussi, et s'inverse
+
+Les 3 checkpoints `epochs=16` sans critic (seed20/21/22, jamais re-evalues
+au-dela de n=5000) re-evalues a `--games 45000` -- meme protocole que le
+reste de cette section, aucun nouvel entrainement necessaire.
+
+| | valeurs (n=3) | moyenne | ecart-type |
+|---|---|---|---|
+| `epochs=16` avec critic (n=7, cf. plus haut) | 14.07, 15.42, 10.84, 8.29, 12.74, 16.97, 15.63 | 13.42 | 3.04 |
+| `epochs=16` sans critic (n=3) | 14.89, 13.64, 13.80 | **14.11** | **0.68** |
+
+**La conclusion initiale ("le critic compte", delta -8.11 sur le seed20 a
+n=5000 : +27.00 avec critic vs +18.89 sans) s'effondre et s'inverse** :
+`sans critic` a maintenant une moyenne legerement **superieure** (14.11 vs
+13.42, ecart non significatif vu la variance du groupe avec critic) --
+l'oppose du delta initial. Le "+27.00" du seed20 n'etait qu'un tirage de
+mesure gonfle (sa vraie valeur, remesuree a n=45000, est 14.07). Bonus :
+`sans critic` garde un ecart-type aussi faible (0.68) que les autres
+configs stables de la session (`epochs=8` PPO, REINFORCE `lr=3e-5`) -- c'est
+`epochs=16` **avec** critic qui est l'anomalie instable, pas le retrait du
+critic.
+
+**A ce stade, comme pour `--no-counterfactual-baseline`, aucune preuve que
+le critic apporte quoi que ce soit de mesurable** sur cette tache -- les
+trois tentatives de la session pour le rendre utile (pre-entrainement,
+cible plus riche, presence/absence) n'ont jamais tenu une fois testees
+rigoureusement.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Isoler proprement l'effet de la nouvelle feature d'etat : comparer PPO et
