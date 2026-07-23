@@ -455,12 +455,40 @@ utile (apres pretraining supervise, cible contre-factuelle enrichie, test
 de presence/absence) et la quatrieme fois que le signal initial ne
 survit pas a un echantillon plus grand.
 
+## Ablation de la feature "points de plis engranges par camp" (`_points_so_far`)
+
+Cette feature (2 scalaires dans `encode_state`, ajoutee sur l'intuition
+qu'un joueur humain en tient compte, cf. plus haut) n'avait jamais ete
+isolee des autres changements survenus en meme temps (lr, dimension
+d'etat). Teste ici proprement : meme protocole partout (`epochs=8,
+lr=3e-5, --no-critic-baseline` -- choisi car le critic, sous toutes ses
+formes testees dans ce README, ne montre aucun effet mesurable, donc
+autant retirer ce confondant en plus), 3 seeds (20/21/22) par bras,
+`imit.pt`/`imit_ablated.pt` regeneres a l'identique (memes hyperparametres
+de pretrain, seed 0) pour que chaque bras n'ait jamais "vu" la feature
+different de l'autre des le depart. `ablate_points=True` force le bloc
+`_points_so_far` a zero (acteur ET critic si non desactive) sans changer
+`STATE_DIM`, cf. `coinche/rl_agent.py`/`train_ppo.py --ablate-points-so-far`.
+
+| | valeurs (n=3) | moyenne | ecart-type |
+|---|---|---|---|
+| avec la feature | 17.47, 16.26, 13.44 | 15.72 | 2.07 |
+| sans la feature (ablation) | 14.06, 15.69, 15.61 | 15.12 | 0.92 |
+
+**Aucun effet mesurable** : delta de moyennes +0.60, largement dans le
+bruit des deux groupes (ecarts-types 2.07 et 0.92 -- bien plus larges que
+le delta lui-meme). Un test de Welch donne t=0.46, tres loin de tout
+seuil de significativite. La feature ne fait ni gagner ni perdre a
+l'acteur, une fois isolee de tout confondant -- coherente avec la
+conclusion deja etablie sur le critic (aucune forme de critic teste dans
+ce README n'a jamais montre d'effet mesurable, et cette feature avait ete
+ajoutee justement dans l'idee qu'elle aiderait le critic). Elle reste dans
+`encode_state` par defaut (l'intuition qui l'a motivee reste valable meme
+sans preuve de gain chiffre), mais ce n'est pas elle qui explique une
+quelconque difference de performance observee ailleurs dans ce README.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
-- Isoler proprement l'effet de la nouvelle feature d'etat : comparer PPO et
-  REINFORCE avec et sans la feature, a lr et nombre d'episodes egaux, sans
-  confondre avec le changement de lr ou de dimension d'etat comme c'est le
-  cas dans les chiffres ci-dessus.
 - Si on veut vraiment distinguer `epochs=8` (PPO) de REINFORCE `lr=1e-4`
   (le seul groupe encore avec un ecart-type notable, 1.33) des deux options
   a variance minimale (`epochs=8` PPO, REINFORCE `lr=3e-5`), plus de seeds

@@ -104,6 +104,11 @@ def main():
     parser.add_argument('--games', type=int, default=1500, help='Nombre de donnes (partagees par tous les checkpoints).')
     parser.add_argument('--seed', type=int, default=42,
                          help='Seed pour generer les donnes fixes (une fois) et reappliquee avant chaque checkpoint.')
+    parser.add_argument('--ablate-points-so-far', action='store_true',
+                         help="Applique le meme flag d'ablation qu'a l'entrainement (train_ppo.py/pretrain.py "
+                              "--ablate-points-so-far) a TOUS les checkpoints de cet appel -- pour comparer un "
+                              "groupe ablate a un autre, lancer eval_policy.py une fois par groupe (memes "
+                              "--games/--seed => memes donnes generees, cf. generate_fixed_deals).")
     args = parser.parse_args()
 
     if torch is None:
@@ -116,7 +121,7 @@ def main():
         if path == 'heuristic':
             factory = lambda: [HeuristicPlayer(f'H{i}') for i in range(4)]
         else:
-            policy = PPOPolicy()
+            policy = PPOPolicy(ablate_points=args.ablate_points_so_far)
             policy.load(path)
             policy.record = False
             factory = lambda policy=policy: [

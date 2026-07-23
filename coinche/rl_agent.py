@@ -220,7 +220,7 @@ def _current_trick_winner_seat(trick, trump, engine):
     return best[0]
 
 
-def encode_state(player, trick, trump) -> list:
+def encode_state(player, trick, trump, ablate_points=False) -> list:
     """Encode l'état vu par `player` au moment de choisir une carte : sa main, les
     cartes déjà tombées dans la donne, le pli en cours, le contrat, et si son
     camp attaque/a pris le contrat. Toujours la même taille (STATE_DIM), quel
@@ -277,7 +277,10 @@ def encode_state(player, trick, trump) -> list:
     # Points de cartes deja engranges par mon camp / l'adversaire dans les plis
     # complets -- absent jusqu'ici de l'etat (remarques_rl.md) alors que c'est
     # un signal direct pour le critic (approche la grandeur qu'il regresse).
-    points_vec = _points_so_far(player, trump, engine)
+    # `ablate_points` (etude d'ablation) : force ce bloc a zero sans changer
+    # STATE_DIM, pour isoler l'effet de cette feature sur l'acteur toutes
+    # choses egales par ailleurs (meme reseau, meme protocole).
+    points_vec = [0.0, 0.0] if ablate_points else _points_so_far(player, trump, engine)
 
     winner_seat = _current_trick_winner_seat(trick, trump, engine)
     partner_winning = 1.0 if (winner_seat is not None and winner_seat == (seat + 2) % 4) else 0.0
@@ -320,7 +323,7 @@ def _other_hands_vec(player, suits, orders) -> list:
     return v
 
 
-def encode_full_state(player, trick, trump) -> list:
+def encode_full_state(player, trick, trump, ablate_points=False) -> list:
     """Etat CENTRALISE pour le critic : encode_state() (ce qu'un joueur reel
     voit) + les mains actuelles des 3 autres sieges -- information
     privilegiee, disponible seulement parce qu'on simule la donne en entier
@@ -331,7 +334,7 @@ def encode_full_state(player, trick, trump) -> list:
     (encode_state) -- les deux sont des reseaux independants (ValueNet vs
     CardNet, train_ppo.py), donc rien n'empeche cette asymetrie d'info."""
     suits, orders = _canonical_slots(trump)
-    return encode_state(player, trick, trump) + _other_hands_vec(player, suits, orders)
+    return encode_state(player, trick, trump, ablate_points=ablate_points) + _other_hands_vec(player, suits, orders)
 
 
 FULL_STATE_DIM = STATE_DIM + 3 * 32  # 167 + 96 = 263

@@ -28,12 +28,13 @@ class RecordingHeuristicPlayer(HeuristicPlayer):
     """Joue exactement comme HeuristicPlayer (aucune logique dupliquee) ; capture
     juste (etat, carte choisie, coups legaux) a chaque decision, dans une liste
     partagee entre les 4 sieges d'une meme donne."""
-    def __init__(self, name, dataset):
+    def __init__(self, name, dataset, ablate_points=False):
         super().__init__(name)
         self.dataset = dataset
+        self.ablate_points = ablate_points
 
     def play_card(self, seat, leader, trick, trump):
-        state = encode_state(self, trick, trump)
+        state = encode_state(self, trick, trump, ablate_points=self.ablate_points)
         legal = self.engine.legal_moves(seat, self.hand, trick, trump)
         suits, orders = _canonical_slots(trump)
         legal_idx = [_slot_index(c.suit, c.rank, suits, orders) for c in legal]
@@ -45,13 +46,13 @@ class RecordingHeuristicPlayer(HeuristicPlayer):
         return card
 
 
-def collect_dataset(n_games, seed=None):
+def collect_dataset(n_games, seed=None, ablate_points=False):
     if seed is not None:
         random.seed(seed)
     dataset = []
     start = time.perf_counter()
     for i in range(n_games):
-        players = [RecordingHeuristicPlayer(f'P{j}', dataset) for j in range(4)]
+        players = [RecordingHeuristicPlayer(f'P{j}', dataset, ablate_points=ablate_points) for j in range(4)]
         engine = GameEngine(players, dealer=i % 4)
         engine.deal()
         engine.run_auction()
@@ -104,6 +105,10 @@ def main():
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--out', default='imit.pt', help='Chemin de sauvegarde des poids pre-entraines.')
+    parser.add_argument('--ablate-points-so-far', action='store_true',
+                         help="Etude d'ablation : force a zero le bloc `_points_so_far` de "
+                              "encode_state (points de plis deja engranges par camp), pour "
+                              "pre-entrainer un imit.pt qui n'a jamais vu cette feature.")
     args = parser.parse_args()
 
     if torch is None:
@@ -113,7 +118,7 @@ def main():
         random.seed(args.seed)
         torch.manual_seed(args.seed)
 
-    dataset = collect_dataset(args.games, seed=None)
+    dataset = collect_dataset(args.games, seed=None, ablate_points=args.ablate_points_so_far)
     net = train_supervised(dataset, epochs=args.epochs, lr=args.lr, batch_size=args.batch_size)
 
     torch.save(net.state_dict(), args.out)

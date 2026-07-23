@@ -106,7 +106,8 @@ if torch is not None:
         valeur, masque des coups legaux) dans `self._traj` ; `record=False`
         (evaluation) joue en glouton (argmax) sans rien memoriser."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
-                     entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False):
+                     entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False,
+                     ablate_points=False):
             self.device = device
             self.policy_net = CardNet().to(device)
             self.value_net = ValueNet().to(device)
@@ -121,12 +122,16 @@ if torch is not None:
             # cf. update_batch), value_net ni utilisee ni entrainee -- teste si un critic par
             # etat apporte quoi que ce soit par rapport a un simple scalaire type REINFORCE.
             self.no_critic_baseline = no_critic_baseline
+            # Etude d'ablation : force a zero le bloc `_points_so_far` de encode_state (des
+            # deux cotes, acteur et critic) -- cf. rl_experiments_v3/README.md.
+            self.ablate_points = ablate_points
             self.record = True
             self._traj = []       # (etat, etat_complet, action_idx, log_prob, valeur, masque) de la donne en cours
             self._episodes = []   # [(traj, retour)] accumules depuis la derniere update_batch()
 
         def choose_card(self, player, legal, leader, trick, trump):
-            x = torch.tensor(encode_state(player, trick, trump), dtype=torch.float32, device=self.device)
+            x = torch.tensor(encode_state(player, trick, trump, ablate_points=self.ablate_points),
+                              dtype=torch.float32, device=self.device)
             logits = self.policy_net(x)
             suits, orders = _canonical_slots(trump)
             mask = torch.full((32,), float('-inf'), device=self.device)
@@ -137,7 +142,7 @@ if torch is not None:
             if self.record:
                 # Etat centralise (mains adverses incluses) uniquement pour le critic,
                 # jamais pour la policy ci-dessus -- cf. docstring de ValueNet.
-                x_full = torch.tensor(encode_full_state(player, trick, trump),
+                x_full = torch.tensor(encode_full_state(player, trick, trump, ablate_points=self.ablate_points),
                                        dtype=torch.float32, device=self.device)
                 value = self.value_net(x_full)
                 dist = torch.distributions.Categorical(logits=masked_logits)
@@ -325,6 +330,11 @@ def main():
                               "n'est ni appelee ni entrainee. Teste si un critic par etat apporte quoi que "
                               "ce soit par rapport a un simple centrage sur la moyenne du batch (cf. "
                               "update_batch). Axe independant de --no-counterfactual-baseline.")
+    parser.add_argument('--ablate-points-so-far', action='store_true',
+                         help="Etude d'ablation : force a zero le bloc `_points_so_far` de encode_state "
+                              "(acteur et critic), pour isoler son effet sur la performance. --load doit "
+                              "pointer vers un imit.pt genere avec le meme flag (pretrain.py "
+                              "--ablate-points-so-far).")
     parser.add_argument('--opponent', default='heuristic',
                          help="Adversaire(s) aux sieges 1/3, separes par des virgules : meme semantique que "
                               "train.py --opponent (heuristic et/ou chemins de poids, pool si plusieurs).")
@@ -361,7 +371,8 @@ def main():
 
     policy = PPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
                         entropy_coef=args.entropy_coef, epochs=args.epochs, minibatch_size=args.minibatch_size,
-                        no_critic_baseline=args.no_critic_baseline)
+                        no_critic_baseline=args.no_critic_baseline,
+                        ablate_points=args.ablate_points_so_far)
     if args.load:
         policy.load(args.load)
         print('poids charges depuis', args.load)
