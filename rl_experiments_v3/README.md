@@ -425,6 +425,36 @@ stable, absence d'effet du critic partiel). 3-4 seeds de plus de chaque
 cote permettraient de confirmer -- ou de degonfler, comme tant d'autres
 resultats prometteurs de cette session -- ce delta.
 
+## Critic centralise re-teste a n=7 : le delta se degonfle et redevient non significatif
+
+4 seeds supplementaires (23/24/25/26, meme protocole exactement), portant
+le groupe critic centralise a n=7 -- meme demarche que celle qui avait
+revele l'instabilite reelle d'`epochs=16` (variance sous-estimee a n=3).
+
+| | valeurs | moyenne | ecart-type |
+|---|---|---|---|
+| critic centralise (n=3, seeds 20-22) | 16.25, 16.32, 17.69 | 16.75 | 0.81 |
+| critic centralise (n=7, seeds 20-26) | 16.25, 16.32, 17.69, 15.89, 17.32, 13.02, 15.34 | **15.98** | **1.53** |
+| critic partiel (n=3, reference) | 14.81, 15.56, 15.01 | 15.13 | 0.39 |
+
+**Le delta se degonfle et n'est plus significatif** : moyenne 15.98 contre
+15.13 pour le critic partiel (delta +0.85, contre +1.63 mesure a n=3), et
+l'ecart-type du groupe centralise a quasiment double (1.53 contre 0.81) --
+le seul seed25 (13.02, le plus bas des 7) aurait suffi a lui seul a casser
+la separation complete observee a n=3. Un test de Welch sur ces chiffres
+donne t=1.37 (df≈7.4), loin du seuil (t_crit≈2.36 a df=7) : la difference
+n'est plus distinguable du bruit.
+
+**Meme lecon que pour `epochs=16`** : un ecart-type qui parait faible a
+n=3 peut n'etre qu'un echantillonnage chanceux, pas une propriete stable
+de la config -- l'ecart-type ne peut pas se mesurer de facon fiable avec
+si peu de seeds. **Verdict final (jusqu'a plus ample echantillon) : le
+critic centralise ne montre pas d'avantage mesurable** sur le critic
+partiel. C'est la quatrieme tentative de la session pour rendre le critic
+utile (apres pretraining supervise, cible contre-factuelle enrichie, test
+de presence/absence) et la quatrieme fois que le signal initial ne
+survit pas a un echantillon plus grand.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Isoler proprement l'effet de la nouvelle feature d'etat : comparer PPO et
@@ -436,7 +466,9 @@ resultats prometteurs de cette session -- ce delta.
   a variance minimale (`epochs=8` PPO, REINFORCE `lr=3e-5`), plus de seeds
   seraient necessaires -- mais l'essentiel est deja tranche : aucun des deux
   algorithmes ne domine l'autre sur cette tache.
-- Confirmer (ou degonfler) le delta du critic centralise : n=3 vs n=3
-  donne +1.63 avec separation complete mais un test de Welch borderline
-  (t=3.13, juste sous le seuil a df≈2.9) -- 3-4 seeds de plus de chaque
-  cote trancheraient dans la meme veine que le reste de cette section.
+- ~~Confirmer (ou degonfler) le delta du critic centralise~~ : fait, 4
+  seeds de plus (n=7 au total) -- le delta se degonfle (+0.85, non
+  significatif), meme conclusion que les 3 autres tentatives sur le
+  critic. Reste ouvert seulement si on veut aussi porter le groupe
+  critic partiel a n=7 pour une comparaison totalement symetrique --
+  peu de raison de s'attendre a un changement de conclusion.
