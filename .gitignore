@@ -12,6 +12,7 @@ rlfinal_vs_h_donnes/
 rl_experiments_v2/exp_growing_pool/*_checkpoints/
 rl_experiments_v2/exp_ppo_round1*_checkpoints/
 rl_experiments_v3/*_checkpoints/
+rl_experiments_v3/**/*_checkpoints/
 
 # C extensions
 *.so

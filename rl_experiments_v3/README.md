@@ -487,6 +487,88 @@ ajoutee justement dans l'idee qu'elle aiderait le critic). Elle reste dans
 sans preuve de gain chiffre), mais ce n'est pas elle qui explique une
 quelconque difference de performance observee ailleurs dans ce README.
 
+## Pool grandissant + PFSP, retest sur l'etat/scoring actuels (`run_growing_pool.py`)
+
+Deja tente une fois dans la lignee v2 (ancien scoring, avant le fix regle
+5, single-seed, evalue a n=3000 seulement) : `exp_growing_pool` y montrait
+un pic au segment 6/10 (300k ep.) suivi d'une redescente non significative
+-- conclusion tiede, jamais reconfirmee sur l'etat/scoring actuels ni avec
+la rigueur (n=45000, multi-seed) etablie plus haut dans ce README.
+
+Retest ici : seed20, 300k episodes, 6 segments de 50k (`run_growing_pool.py
+--total-episodes 300000 --segment-episodes 50000 --init-load
+rl_experiments_v3/imit.pt --seed-start 20`), reglages inchanges (`lr=1e-4,
+entropy-beta=0.002`, `--pfsp-refresh-every 1000 --pfsp-temperature 0.1
+--pfsp-ema-beta 0.98`, pool = heuristic + tous les checkpoints de segments
+precedents). Duree reelle : 5603s (~1h33) pour les 6 segments (670, 892,
+970, 1020, 1014, 1037s -- croissant avec la taille du pool, meme
+comportement que v2).
+
+Evalue a n=45000 contre heuristic seul (meme protocole que le reste de ce
+README) :
+
+| Checkpoint | eval_avg(45000) | win_rate |
+|---|---|---|
+| imit.pt | -2.10 | 49.5% |
+| seg_50000 | +12.32 | 52.4% |
+| seg_100000 | +15.74 | 53.1% |
+| **seg_150000** | **+17.81** | **53.6%** |
+| seg_200000 | +15.18 | 53.0% |
+| seg_250000 | +13.87 | 52.9% |
+| seg_300000 | +12.46 | 52.6% |
+
+Meme dessin qu'en v2 : ca monte, pique a mi-parcours (seg_150000, 50% du
+run), puis redescend -- ici jusqu'a quasiment retomber au niveau de
+seg_50000. Le point final est **en dessous** du plateau stable obtenu par
+un entrainement simple contre heuristic seul, sans pool (epochs=8 PPO ou
+REINFORCE, ~15.1-15.2 sur 3-4 seeds, cf. plus haut).
+
+**Mais `eval_avg` contre heuristic seul ne mesure que l'exploitation d'un
+adversaire fixe, pas la polyvalence** -- exactement ce qu'un pool
+grandissant est cense sacrifier un peu pour gagner en robustesse. Verifie
+via un round-robin policy-vs-policy (`eval_matchup.py`, nouveau script :
+memes `generate_fixed_deals`/`evaluate_fixed` que `eval_policy.py`, mais
+oppose deux checkpoints entre eux au lieu d'un checkpoint a heuristic),
+n=10000 donnes par appariement, entre `heuristic`, le checkpoint "vanille"
+(`exp_ppo_lr3e-5/ppo_100000.pt`, entraine uniquement contre heuristic),
+`seg_50000`, `seg_150000` (le pic vs heuristic) et `seg_300000` (le
+final) :
+
+| A \ B (siege 0/2 vs 1/3) | heuristic | vanille | seg50k | seg150k | seg300k |
+|---|---|---|---|---|---|
+| heuristic | -- | -11.46 | -9.42 | -13.01 | -9.29 |
+| vanille | +17.63 | -- | +6.87 | -0.24 | -1.32 |
+| seg50k | +14.89 | -1.70 | -- | -4.97 | -5.89 |
+| seg150k | +22.46 | +5.88 | +12.54 | -- | +0.95 |
+| seg300k | +15.77 | +3.51 | +10.29 | +4.56 | -- |
+
+**L'hypothese se confirme** : `seg300k` bat `vanille` dans les deux sens
+(+3.51 / -1.32) alors que `vanille` score mieux contre heuristic seul dans
+cette meme passe (+17.63 vs +15.77) -- le reseau specialise a exploiter
+heuristic perd en tete-a-tete contre un reseau moins specialise mais plus
+polyvalent. Et `seg300k` est quasi a egalite avec `seg150k` en tete-a-tete
+(+0.95 / +4.56) alors que `seg150k` score nettement mieux contre heuristic
+seul (+17.81 vs +12.46) -- la "redescente" du tableau vs-heuristic ne
+correspond donc **pas** a une regression de niveau general, seulement a un
+deplacement de la specialisation (moins d'exploitation pure de heuristic,
+sans perte de force face a d'autres styles). `seg300k` bat aussi
+nettement `seg50k` dans les deux sens (+10.29 / -5.89) : la progression du
+pool est reelle, pas du bruit.
+
+Reserve : un seul seed (comme toujours dans ce README pour une premiere
+passe), et les deux sens d'un meme appariement au round-robin ne sont pas
+parfaitement symetriques (ex. vanille vs seg50k : +6.87 puis -1.70) --
+bruit du placement des sieges sur les memes donnes, a lire comme direction
+plutot que valeur exacte.
+
+**A refaire** : 2 seeds de plus (meme config, seed21/22) pour confirmer
+que ce pattern (progression reelle en polyvalence, malgre une redescente
+trompeuse de `eval_avg` vs heuristic seul) se reproduit -- et si confirme,
+ajouter un round-robin plus large (plus de segments,+ checkpoint REINFORCE
+`exp_reinforce_lr3e-5`) pour caracteriser completement la polyvalence
+gagnee. Reporte a une session ulterieure (~1h33/seed, ~7h pour 3 seeds
+complets a 300k).
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Si on veut vraiment distinguer `epochs=8` (PPO) de REINFORCE `lr=1e-4`
