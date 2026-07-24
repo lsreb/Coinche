@@ -569,6 +569,79 @@ ajouter un round-robin plus large (plus de segments,+ checkpoint REINFORCE
 gagnee. Reporte a une session ulterieure (~1h33/seed, ~7h pour 3 seeds
 complets a 300k).
 
+### Seed21 : le pattern se confirme, sur une trajectoire `eval_avg` completement differente
+
+Seed21 (meme config exactement, `--seed-start 21`) : 5519s (~1h32).
+`eval_avg` vs heuristic seul dessine cette fois une montee quasi continue
+(pas de pic-puis-effondrement comme seed20) :
+
+| Checkpoint | eval_avg(45000) | win_rate |
+|---|---|---|
+| seg_50000 | +13.60 | 52.7% |
+| seg_100000 | +15.74 | 53.2% |
+| seg_150000 | +16.90 | 53.4% |
+| seg_200000 | +19.37 | 53.9% |
+| seg_250000 | +22.25 | 54.4% |
+| seg_300000 | +20.81 | 54.2% |
+
+Deux seeds, deux formes tres differentes de courbe `eval_avg` vs
+heuristic (pic-effondrement pour seed20, montee-leger repli pour seed21)
+-- nouvelle confirmation que cette seule metrique est trop bruitee/trop
+etroite (un seul adversaire fixe) pour juger un entrainement en pool.
+
+Round-robin etendu (`eval_matchup.py`, n=10000/appariement) : heuristic,
+vanille, seed20/seg_50000, seed20/seg_300000, seed21/seg_50000,
+seed21/seg_300000 (6 specs, 30 appariements) :
+
+| A \ B | heuristic | vanille | seed20/50k | seed20/300k | seed21/50k | seed21/300k |
+|---|---|---|---|---|---|---|
+| heuristic | -- | -11.46 | -9.42 | -9.29 | -8.59 | -16.17 |
+| vanille | +17.63 | -- | +6.87 | -1.32 | +5.74 | -5.05 |
+| seed20/50k | +14.89 | -1.70 | -- | -5.89 | +0.44 | -11.84 |
+| seed20/300k | +15.77 | +3.51 | +10.29 | -- | +6.37 | +0.31 |
+| seed21/50k | +17.91 | +1.59 | +4.35 | -1.01 | -- | -7.21 |
+| seed21/300k | +23.80 | +9.86 | +16.92 | +4.19 | +13.03 | -- |
+
+**Decouverte methodologique en marge** : la somme des deux sens d'un
+meme appariement (X vs Y + Y vs X) n'est presque jamais nulle -- il y a
+un biais de placement systematique d'environ +2 a +5 points en faveur de
+qui occupe les sieges 0/2 (probablement lie a la rotation du donneur dans
+`generate_fixed_deals`), independant du niveau reel des deux joueurs.
+Comme tout le reste de ce README compare toujours le RL en 0/2 contre
+heuristic en 1/3, ce biais n'a jamais fausse une seule comparaison
+anterieure (applique identiquement a tous les checkpoints) -- mais dans
+un round-robin ou chaque checkpoint occupe tour a tour les deux sieges,
+il faut le neutraliser en moyennant les deux sens de chaque paire :
+`skill(X,Y) = ((X vs Y) - (Y vs X)) / 2`.
+
+Force moyenne de chacun contre les 5 autres, une fois ce biais corrige :
+
+| | force moyenne (corrigee) |
+|---|---|
+| **seed21/seg_300000** | **+10.78** |
+| seed20/seg_300000 | +4.96 |
+| vanille | +2.21 |
+| seed21/seg_50000 | -0.14 |
+| seed20/seg_50000 | -3.31 |
+| heuristic | -14.49 |
+
+**Le pattern se confirme sur les 2 seeds** : les deux checkpoints finaux
+(300k) du pool grandissant battent la vanille en force reelle, malgre des
+trajectoires `eval_avg` vs heuristic totalement differentes en surface
+(effondrement pour seed20, quasi-plateau pour seed21). Les deux
+checkpoints precoces (50k) restent proches l'un de l'autre et sous la
+vanille. Vraie variance de seed sur le niveau final atteint (seed21 net-
+tement au-dessus de seed20), mais la conclusion qualitative -- le pool
+grandissant produit un reseau plus fort en general que l'entrainement
+simple, meme quand `eval_avg` vs heuristic seul suggere le contraire --
+tient desormais sur 2 seeds independants.
+
+**A refaire** : seed22 (dernier des 3 prevus) pour une confirmation a
+n=3 ; envisager d'etendre le round-robin a REINFORCE simple
+(`exp_reinforce_lr3e-5`) et a PPO en pool grandissant (`run_growing_pool.py`
+ne supporte que `train.py`/REINFORCE actuellement -- jamais teste avec
+`train_ppo.py`).
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Si on veut vraiment distinguer `epochs=8` (PPO) de REINFORCE `lr=1e-4`
