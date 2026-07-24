@@ -721,6 +721,36 @@ il s'est confirme et clarifie.
 equivalent PPO du pool grandissant (`run_growing_pool.py` ne pilote que
 `train.py` actuellement).
 
+### REINFORCE simple ajoute au round-robin : le classement tient toujours
+
+Ajoute `exp_reinforce_lr3e-5/reinforce_100000.pt` (jamais inclus jusqu'ici)
+au round-robin -- 16 nouveaux appariements (contre les 8 specs deja
+testes, n=10000, memes donnes), reutilisant les paires deja connues pour
+le reste.
+
+Force moyenne corrigee (9 specs, contre les 8 autres) :
+
+| | force moyenne |
+|---|---|
+| **seed22/300k** | **+10.03** |
+| seed21/300k | +8.46 |
+| seed20/300k | +3.62 |
+| REINFORCE simple | +1.05 |
+| vanille (PPO simple) | +0.48 |
+| seed22/50k | -1.53 |
+| seed21/50k | -1.95 |
+| seed20/50k | -4.42 |
+| heuristic | -15.10 |
+
+REINFORCE simple se classe juste au-dessus de la vanille PPO (+1.05 vs
++0.48) -- coherent avec le `PPO≈REINFORCE` deja etabli plus haut dans ce
+README -- et surtout reste, comme la vanille, nettement sous les 3
+checkpoints finaux du pool grandissant et au-dessus des 3 precoces. La
+conclusion ne depend donc pas de l'algorithme choisi comme reference
+"entrainement simple" : PPO et REINFORCE simples se classent tous deux au
+meme niveau intermediaire, loin derriere les checkpoints finaux du pool
+grandissant.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Si on veut vraiment distinguer `epochs=8` (PPO) de REINFORCE `lr=1e-4`
