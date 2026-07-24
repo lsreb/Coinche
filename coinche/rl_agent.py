@@ -424,4 +424,10 @@ if torch is not None:
             torch.save(self.net.state_dict(), path)
 
         def load(self, path):
-            self.net.load_state_dict(torch.load(path, map_location=self.device))
+            """Accepte aussi bien un state_dict CardNet brut (imit.pt, segments
+            REINFORCE) qu'un checkpoint PPO natif (dict a cle 'policy', cf.
+            PPOPolicy.save() dans train_ppo.py) -- necessaire pour que
+            make_opponent_factory (train.py) puisse charger un checkpoint PPO
+            comme adversaire fige dans un pool (run_growing_pool_ppo.py)."""
+            obj = torch.load(path, map_location=self.device)
+            self.net.load_state_dict(obj['policy'] if 'policy' in obj else obj)

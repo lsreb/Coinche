@@ -751,6 +751,67 @@ conclusion ne depend donc pas de l'algorithme choisi comme reference
 meme niveau intermediaire, loin derriere les checkpoints finaux du pool
 grandissant.
 
+## Pool grandissant en PPO (`run_growing_pool_ppo.py`) : le gain se retrouve aussi
+
+`run_growing_pool.py` ne pilotait que `train.py`/REINFORCE. Ecrit
+`run_growing_pool_ppo.py` (meme logique en segments, meme pool +
+PFSP) mais cible `train_ppo.py` avec la config PPO stable deja validee
+(`epochs=8, lr=3e-5, value-coef=0.5, entropy-coef=0.002`) -- pour verifier
+si le gain confirme sur REINFORCE (n=3) tient aussi avec PPO.
+
+**Bug trouve et corrige avant de lancer quoi que ce soit** : le pool
+d'adversaires (`--opponent`) charge chaque checkpoint via
+`NeuralPolicy.load()` (`coinche/rl_agent.py`), qui attendait un state_dict
+CardNet brut -- pas le format natif PPO (`{'policy':, 'value':}`, cf.
+`PPOPolicy.save()`). Des le segment 2, l'orchestrateur PPO aurait plante
+en essayant de charger le checkpoint du segment precedent comme
+adversaire fige. Corrige : `NeuralPolicy.load()` accepte maintenant les
+deux formats (`obj['policy'] if 'policy' in obj else obj`), meme logique
+que `PPOPolicy.load()`. Smoke-teste (400 episodes, 2 segments) avant de
+lancer le vrai run.
+
+Segment continuation : `--load` ET `--load-value` recoivent tous deux le
+checkpoint du segment precedent (policy + critic), sauf le tout premier
+segment (part de `imit.pt`, policy seule, critic demarre aleatoire).
+
+Premier seed (20, 300k episodes, 6 segments, ~1h46) : `eval_avg` vs
+heuristic seul monte proprement (+13.29 -> +13.98 -> +17.53 -> +19.10 ->
++18.66 -> **+19.86**), sans effondrement -- forme similaire aux seeds
+REINFORCE les plus propres (21/22).
+
+Round-robin etendu a 11 specs (heuristic, vanille PPO, REINFORCE simple,
+pool REINFORCE seed20/21/22 x early/final, pool PPO seed20 x
+early/final ; seules les 38 nouvelles paires impliquant le pool PPO ont
+ete rejouees, n=10000, memes donnes que le reste de cette section) :
+
+| | force moyenne |
+|---|---|
+| **pool PPO/seed20 final** | **+9.49** |
+| pool REINFORCE/seed22 final | +8.97 |
+| pool REINFORCE/seed21 final | +7.44 |
+| pool REINFORCE/seed20 final | +2.95 |
+| REINFORCE simple | +0.35 |
+| vanille (PPO simple) | -0.41 |
+| pool REINFORCE/seed22 precoce | -2.12 |
+| pool REINFORCE/seed21 precoce | -2.68 |
+| pool PPO/seed20 precoce | -3.37 |
+| pool REINFORCE/seed20 precoce | -4.71 |
+| heuristic | -15.40 |
+
+**Confirmation sans exception, algorithme confondu** : les 4 checkpoints
+finaux (300k, 1 PPO + 3 REINFORCE) sont tous au-dessus des deux
+entrainements simples (REINFORCE et PPO vanille), et les 4 checkpoints
+precoces (50k) sont tous en dessous. Le premier seed PPO se classe meme
+premier de tout le classement -- sur un seul seed PPO, a ne pas
+surinterpreter au-dela de "PPO beneficie aussi clairement du pool
+grandissant", mais le pattern qualitatif (pool grandissant > entrainement
+simple) ne depend donc ni de l'algorithme d'entrainement simple choisi
+comme reference, ni de l'algorithme utilise pour le pool lui-meme.
+
+**A refaire si on veut confirmer a n=3 pour PPO aussi** : 2 seeds PPO de
+plus (`run_growing_pool_ppo.py --seed-start 21` puis `22`), meme demarche
+que pour REINFORCE.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Si on veut vraiment distinguer `epochs=8` (PPO) de REINFORCE `lr=1e-4`

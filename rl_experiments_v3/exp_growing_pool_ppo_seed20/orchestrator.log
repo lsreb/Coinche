@@ -1,0 +1,19 @@
+=== Segment 1/6 : episodes 1-50000 (pool a 1 membres) ===
+  pool: heuristic
+  segment 1 termine en 814s, poids dans rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_50000.pt
+=== Segment 2/6 : episodes 50001-100000 (pool a 2 membres) ===
+  pool: heuristic,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_50000.pt
+  segment 2 termine en 1066s, poids dans rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_100000.pt
+=== Segment 3/6 : episodes 100001-150000 (pool a 3 membres) ===
+  pool: heuristic,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_50000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_100000.pt
+  segment 3 termine en 1072s, poids dans rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_150000.pt
+=== Segment 4/6 : episodes 150001-200000 (pool a 4 membres) ===
+  pool: heuristic,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_50000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_100000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_150000.pt
+  segment 4 termine en 1135s, poids dans rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_200000.pt
+=== Segment 5/6 : episodes 200001-250000 (pool a 5 membres) ===
+  pool: heuristic,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_50000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_100000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_150000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_200000.pt
+  segment 5 termine en 1148s, poids dans rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_250000.pt
+=== Segment 6/6 : episodes 250001-300000 (pool a 6 membres) ===
+  pool: heuristic,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_50000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_100000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_150000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_200000.pt,rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_250000.pt
+  segment 6 termine en 1178s, poids dans rl_experiments_v3/exp_growing_pool_ppo_seed20/seg_300000.pt
+Orchestration terminee : 6 segments, pool final a 7 membres (heuristic + 6 snapshots).
