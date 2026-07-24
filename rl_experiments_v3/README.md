@@ -642,6 +642,85 @@ n=3 ; envisager d'etendre le round-robin a REINFORCE simple
 ne supporte que `train.py`/REINFORCE actuellement -- jamais teste avec
 `train_ppo.py`).
 
+### Seed22 (n=3) : conclusion finale -- confirme sans exception sur les 3 seeds
+
+Seed22 (meme config, ~1h28) : `eval_avg` vs heuristic seul dessine une
+troisieme forme de courbe, encore differente des deux precedentes --
+montee puis **plateau stable** autour de +20 (150k a 300k), sans
+effondrement (seed20) ni repli (seed21) :
+
+| Checkpoint | eval_avg(45000) | win_rate |
+|---|---|---|
+| seg_50000 | +11.85 | 52.3% |
+| seg_100000 | +16.54 | 53.3% |
+| seg_150000 | +20.05 | 54.0% |
+| seg_200000 | +20.40 | 54.1% |
+| seg_250000 | +20.36 | 54.1% |
+| seg_300000 | +20.24 | 54.1% |
+
+Trois seeds, trois trajectoires `eval_avg` qualitativement differentes
+(effondrement / repli / plateau) -- confirmation supplementaire que
+cette metrique seule ne suffit pas a juger un entrainement en pool.
+
+**Verification du biais de siege (au passage)** : avant d'etendre le
+round-robin, verifie que le "biais" de +2 a +5 points en faveur des
+sieges 0/2 (note dans la section seed21) n'est pas un vrai biais mecanique
+mais un artefact de cet echantillon precis de 10000 donnes. Fait tourner
+toute la table d'un quart de tour (mains ET donneur decales ensemble,
+memes donnes) : les resultats s'inversent **exactement** (`tourne(A vs B)
+= -original(B vs A)`, verifie a la decimale pres sur plusieurs paires) --
+preuve que le moteur traite les 4 sieges de facon parfaitement
+symetrique, et que le "biais" observe est propre a cet echantillon de
+donnes precis (seed=42), pas une propriete du jeu. La correction
+`skill(X,Y) = ((X vs Y) - (Y vs X))/2` deja appliquee reste donc la bonne
+methode.
+
+Round-robin etendu a 8 specs (heuristic, vanille, seed20/21/22 x
+early/final, n=10000/appariement -- seules les 26 nouvelles paires
+impliquant seed22 ont ete rejouees, le reste reutilise les resultats
+deja obtenus) :
+
+| A \ B | heuristic | vanille | s20-50k | s20-300k | s21-50k | s21-300k | s22-50k | s22-300k |
+|---|---|---|---|---|---|---|---|---|
+| heuristic | -- | -11.46 | -9.42 | -9.29 | -8.59 | -16.17 | -7.54 | -17.65 |
+| vanille | +17.63 | -- | +6.87 | -1.32 | +5.74 | -5.05 | +6.03 | -8.88 |
+| s20-50k | +14.89 | -1.70 | -- | -5.89 | +0.44 | -11.84 | +2.24 | -14.24 |
+| s20-300k | +15.77 | +3.51 | +10.29 | -- | +6.37 | +0.31 | +9.51 | -3.69 |
+| s21-50k | +17.91 | +1.59 | +4.35 | -1.01 | -- | -7.21 | +2.48 | -10.43 |
+| s21-300k | +23.80 | +9.86 | +16.92 | +4.19 | +13.03 | -- | +13.42 | -2.07 |
+| s22-50k | +15.03 | +0.93 | +4.35 | -3.17 | +6.25 | -6.52 | -- | -9.87 |
+| s22-300k | +22.15 | +9.56 | +13.48 | +6.40 | +10.26 | +5.04 | +12.58 | -- |
+
+Classement final (force moyenne corrigee du biais de siege, contre les 7
+autres) :
+
+| | force moyenne |
+|---|---|
+| **seed22/300k** | **+10.45** |
+| seed21/300k | +8.61 |
+| seed20/300k | +3.73 |
+| vanille | +0.62 |
+| seed22/50k | -1.54 |
+| seed21/50k | -1.84 |
+| seed20/50k | -4.50 |
+| heuristic | -14.81 |
+
+**Conclusion finale (n=3, meme rigueur que le reste de ce README) :** les
+3 checkpoints finaux (300k) sont au-dessus de la vanille, et les 3
+checkpoints precoces (50k) sont en dessous -- sans exception. Le pool
+grandissant + PFSP (`run_growing_pool.py`, REINFORCE) produit un reseau
+mesurablement plus polyvalent/plus fort en general qu'un entrainement
+simple contre heuristic seul -- meme si `eval_avg` contre heuristic seul,
+pris isolement, peut suggerer le contraire selon le seed (cf. seed20).
+C'est la premiere piste structurelle de toute la lignee v3 dont l'effet
+initial ne s'est pas degonfle a l'echantillonnage complet -- au contraire,
+il s'est confirme et clarifie.
+
+**A refaire si on veut pousser plus loin** : etendre a REINFORCE simple
+(`exp_reinforce_lr3e-5`, jamais inclus au round-robin) et batir un
+equivalent PPO du pool grandissant (`run_growing_pool.py` ne pilote que
+`train.py` actuellement).
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Si on veut vraiment distinguer `epochs=8` (PPO) de REINFORCE `lr=1e-4`
