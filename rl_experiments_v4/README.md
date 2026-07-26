@@ -152,8 +152,72 @@ necessaire) comme reference, puis lancer un run court (20000 episodes)
 a 0.006 pour verifier que l'entropie realisee augmente comme attendu,
 avant d'investir dans une comparaison complete a 100k episodes.
 
-**A faire si on veut poursuivre** : confirmer/infirmer `lr=3e-5` a
-plusieurs seeds avant de trancher entre les deux lr ; tester
-`entropy-beta` plus eleve (piste ci-dessus) ; tester PPO avec
-`CardNetBig` (jamais fait, seulement REINFORCE jusqu'ici) ; puis passer a
-l'etape 2 du plan (tronc partage).
+## Bonus d'entropie plus fort : ne marche pas -- le probleme vient de l'imitation, pas du RL
+
+Reference (post-entrainement, `entropy-beta=0.002`, memes 5 checkpoints
+100k episodes que plus haut) : entropie 0.0838-0.1173, tres proche du
+depart imitation (0.0848) -- l'entrainement REINFORCE ne bouge quasiment
+pas l'entropie. Pour comparaison, `CardNet` (v3) reste toute sa vie dans
+0.17-0.22 (imitation comme apres RL) -- `CardNetBig` opere a peu pres a
+moitie de ce niveau, a chaque etape.
+
+Teste `entropy-beta` plus eleve pour compenser, sur des runs COURTS
+(20000 episodes, meme seed20, `lr=1e-4`, pour isoler l'effet du
+coefficient a volume d'entrainement egal) :
+
+| entropy-beta | entropie moy (20000 ep) | top1_prob moy |
+|---|---|---|
+| `0.002` (reference) | 0.0966 | 96.10% |
+| `0.006` (~3x) | 0.0986 | 95.98% |
+| `0.06` (~30x) | **0.1018** | 95.91% |
+
+**Le bonus d'entropie n'a quasiment aucune prise ici** : meme multiplie
+par 30x, l'entropie bouge a peine (+0.005 par rapport a la reference).
+Hypothese : pres d'une distribution quasi-deterministe (comme celle de
+`CardNetBig` des la sortie d'imitation), le gradient de l'entropie par
+rapport aux logits devient tres plat -- aucun coefficient raisonnable ne
+peut la faire bouger significativement une fois la policy aussi confiante.
+Le probleme vient donc de l'**imitation elle-meme**, pas d'un correctif a
+appliquer apres coup pendant le RL.
+
+## Arreter l'imitation a une entropie cible (0.20, niveau de `CardNet`)
+
+Plutot que de corriger apres coup, arrete l'entrainement d'imitation des
+que l'entropie de la policy (mesuree sur le meme echantillon de 500
+donnes de reference) atteint la cible de `CardNet` (~0.20), au lieu
+d'aller jusqu'a convergence complete (20 epochs, ou l'entropie tombe a
+0.0848).
+
+| epoch | accuracy | entropie (probe) |
+|---|---|---|
+| 1 | 82.1% | 0.3827 |
+| 2 | 89.0% | 0.2933 |
+| 3 | 90.9% | 0.2421 |
+| 4 | 92.1% | 0.2149 |
+| **5** | **92.9%** | **0.1922** (cible atteinte) |
+
+Arrete a l'epoch 5 -> `rl_experiments_v4/imit_bignet_ent02.pt`. Fait
+notable : l'accuracy a ce point (92.9%) est quasiment identique a celle
+de `CardNet` totalement converge (92.8%) -- les deux reseaux atteignent
+le meme niveau d'imitation a une entropie comparable, `CardNetBig` juste
+beaucoup plus vite (5 epochs contre 20) grace a sa capacite
+supplementaire. Meme architecture que `imit_bignet.pt` (aucune rupture de
+compatibilite, reste dans cette lignee v4, pas une nouvelle lignee --
+seul le point d'arret de l'entrainement change, pas la forme des poids).
+
+**A faire** : fine-tuning REINFORCE depuis `imit_bignet_ent02.pt` (au lieu
+de `imit_bignet.pt`), memes lr testes (`3e-5`, `1e-4`), pour voir si
+partir d'une entropie comparable a `CardNet` resout la sous-performance
+observee.
+
+## A faire si on veut poursuivre
+
+- Lancer le fine-tuning REINFORCE depuis `imit_bignet_ent02.pt` (piste
+  ci-dessus, prioritaire).
+- Confirmer/infirmer `lr=3e-5` a plusieurs seeds (avec l'ancien
+  `imit_bignet.pt`) avant de trancher entre les deux lr, si la piste
+  ci-dessus ne suffit pas a expliquer l'ecart.
+- Tester PPO avec `CardNetBig` (jamais fait, seulement REINFORCE
+  jusqu'ici).
+- Puis passer a l'etape 2 du plan (tronc partage acteur/critic + critic
+  centralise, `coinche/remarques_rl.md` point 6).

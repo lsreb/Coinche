@@ -1,0 +1,14 @@
+/home/lsr/anaconda3/envs/env_coinche/lib/python3.13/site-packages/torch/autograd/graph.py:882: UserWarning: CUDA initialization: Unexpected error from cudaGetDeviceCount(). Did you run some cuda functions before calling NumCudaDevices() that might have already set an error? Error 804: forward compatibility was attempted on non supported HW (Triggered internally at /pytorch/c10/cuda/CUDAFunctions.cpp:119.)
+  return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+poids charges depuis rl_experiments_v4/imit_bignet.pt
+episode   2000  train_avg=   +1.3  adv_avg=   -6.0  eval_avg(500)=   +5.5  win_rate= 51.2%  entropy_beta=0.0060  baseline=   +2.4  (46.8s)
+episode   4000  train_avg=  -14.7  adv_avg=   -9.2  eval_avg(500)=  -11.6  win_rate= 47.4%  entropy_beta=0.0060  baseline=  +21.5  (95.9s)
+episode   6000  train_avg=   -8.8  adv_avg=   +4.3  eval_avg(500)=  -19.0  win_rate= 45.8%  entropy_beta=0.0060  baseline=  -36.0  (151.2s)
+episode   8000  train_avg=   +1.7  adv_avg=   -0.9  eval_avg(500)=  +14.1  win_rate= 53.0%  entropy_beta=0.0060  baseline=  +53.8  (198.2s)
+episode  10000  train_avg=  +37.9  adv_avg=  +32.7  eval_avg(500)=   -4.8  win_rate= 49.8%  entropy_beta=0.0060  baseline=  +65.6  (248.0s)
+episode  12000  train_avg=  +13.6  adv_avg=   -3.1  eval_avg(500)=   +8.1  win_rate= 52.0%  entropy_beta=0.0060  baseline=  +33.7  (302.5s)
+episode  14000  train_avg=  +16.7  adv_avg=   +7.2  eval_avg(500)=  +24.4  win_rate= 55.0%  entropy_beta=0.0060  baseline=  +47.9  (359.8s)
+episode  16000  train_avg=  +30.1  adv_avg=   -0.5  eval_avg(500)=   +7.1  win_rate= 50.6%  entropy_beta=0.0060  baseline=  -30.2  (442.4s)
+episode  18000  train_avg=  +15.9  adv_avg=  +19.2  eval_avg(500)=  +20.2  win_rate= 53.8%  entropy_beta=0.0060  baseline=  +52.8  (494.1s)
+episode  20000  train_avg=   +6.1  adv_avg=   +5.3  eval_avg(500)=   -7.9  win_rate= 48.6%  entropy_beta=0.0060  baseline=  -17.2  (543.0s)
+poids sauvegardes dans rl_experiments_v4/exp_reinforce_bignet_entbeta006_short_seed20/reinforce_20000.pt
