@@ -30,7 +30,7 @@ import time
 
 from coinche.game import GameEngine
 from coinche.players import RLPlayer, HeuristicPlayer
-from coinche.rl_agent import NeuralPolicy, torch
+from coinche.rl_agent import NeuralPolicy, CardNet, CardNetBig, torch
 
 # L'equipe RL controle les sieges 0 et 2 (partenaires) ; 1 et 3 sont l'adversaire.
 RL_SEATS = (0, 2)
@@ -235,6 +235,11 @@ def main():
                          help="Decalage ajoute au compteur d'episode (logs, dealer, decroissance d'entropie, "
                               "nom des checkpoints) : pour reprendre un entrainement precedent avec une "
                               "numerotation absolue coherente, mettre le nombre d'episodes deja effectues.")
+    parser.add_argument('--architecture', choices=['small', 'big'], default='small',
+                         help="'small' = CardNet (1 couche cachee de 128, defaut, config deja "
+                              "validee). 'big' = CardNetBig (128/128/64, GELU, remarques_rl.md "
+                              "point 6) -- --load doit alors pointer vers un checkpoint genere "
+                              "avec pretrain.py --architecture big.")
     args = parser.parse_args()
 
     if torch is None:
@@ -248,7 +253,8 @@ def main():
     sampler = PFSPSampler(opponent_pool, refresh_every=args.pfsp_refresh_every,
                            temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
 
-    policy = NeuralPolicy(lr=args.lr, entropy_beta=args.entropy_beta)
+    net_cls = CardNetBig if args.architecture == 'big' else CardNet
+    policy = NeuralPolicy(lr=args.lr, entropy_beta=args.entropy_beta, net_cls=net_cls)
     if args.load:
         policy.load(args.load)
         print('poids charges depuis', args.load)

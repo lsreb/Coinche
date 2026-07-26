@@ -362,13 +362,40 @@ if torch is not None:
             x = F.relu(self.fc1(x))
             return self.fc2(x)
 
+    class CardNetBig(nn.Module):
+        """Variante plus profonde de CardNet (remarques_rl.md point 6) : teste si
+        1 seule couche cachee de 128 est un plafond de capacite (l'imitation sature
+        a ~92-93% d'accuracy, pas 99%, avec CardNet). N'existe qu'a cote de CardNet
+        (jamais modifiee en place) pour que les configs deja validees restent
+        chargeables/reproductibles a l'identique.
+
+        LayerNorm en Pre-LN (avant chaque couche lineaire, pas apres) : stabilise
+        l'entrainement d'un MLP plus profond, meme motivation que les blocs Pre-LN
+        des transformers."""
+        def __init__(self, in_dim=STATE_DIM, hidden1=128, hidden2=128, hidden3=64):
+            super().__init__()
+            self.ln1 = nn.LayerNorm(in_dim)
+            self.fc1 = nn.Linear(in_dim, hidden1)
+            self.ln2 = nn.LayerNorm(hidden1)
+            self.fc2 = nn.Linear(hidden1, hidden2)
+            self.ln3 = nn.LayerNorm(hidden2)
+            self.fc3 = nn.Linear(hidden2, hidden3)
+            self.ln4 = nn.LayerNorm(hidden3)
+            self.fc4 = nn.Linear(hidden3, 32)
+
+        def forward(self, x):
+            x = F.gelu(self.fc1(self.ln1(x)))
+            x = F.gelu(self.fc2(self.ln2(x)))
+            x = F.gelu(self.fc3(self.ln3(x)))
+            return self.fc4(self.ln4(x))
+
     class NeuralPolicy:
         """Policy entraînable par REINFORCE. `record=True` (par défaut) échantillonne
         et mémorise le log-prob de chaque décision ; `record=False` (évaluation)
         joue en glouton (argmax) sans toucher au buffer de trajectoire."""
-        def __init__(self, device='cpu', lr=1e-3, baseline_beta=0.95, entropy_beta=0.01):
+        def __init__(self, device='cpu', lr=1e-3, baseline_beta=0.95, entropy_beta=0.01, net_cls=CardNet):
             self.device = device
-            self.net = CardNet().to(device)
+            self.net = net_cls().to(device)
             self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
             self.record = True
             self.saved_log_probs = []

@@ -16,7 +16,7 @@ import time
 
 from coinche.game import GameEngine
 from coinche.players import HeuristicPlayer
-from coinche.rl_agent import CardNet, encode_state, _canonical_slots, _slot_index, torch
+from coinche.rl_agent import CardNet, CardNetBig, encode_state, _canonical_slots, _slot_index, torch
 
 try:
     import torch.nn.functional as F
@@ -63,8 +63,8 @@ def collect_dataset(n_games, seed=None, ablate_points=False):
     return dataset
 
 
-def train_supervised(dataset, epochs, lr, batch_size, device='cpu'):
-    net = CardNet().to(device)
+def train_supervised(dataset, epochs, lr, batch_size, device='cpu', net_cls=CardNet):
+    net = net_cls().to(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     n = len(dataset)
 
@@ -109,6 +109,11 @@ def main():
                          help="Etude d'ablation : force a zero le bloc `_points_so_far` de "
                               "encode_state (points de plis deja engranges par camp), pour "
                               "pre-entrainer un imit.pt qui n'a jamais vu cette feature.")
+    parser.add_argument('--architecture', choices=['small', 'big'], default='small',
+                         help="'small' = CardNet (1 couche cachee de 128, defaut, config deja "
+                              "validee). 'big' = CardNetBig (128/128/64, GELU, remarques_rl.md "
+                              "point 6) -- checkpoint incompatible avec 'small', a charger avec "
+                              "train.py --architecture big.")
     args = parser.parse_args()
 
     if torch is None:
@@ -118,8 +123,9 @@ def main():
         random.seed(args.seed)
         torch.manual_seed(args.seed)
 
+    net_cls = CardNetBig if args.architecture == 'big' else CardNet
     dataset = collect_dataset(args.games, seed=None, ablate_points=args.ablate_points_so_far)
-    net = train_supervised(dataset, epochs=args.epochs, lr=args.lr, batch_size=args.batch_size)
+    net = train_supervised(dataset, epochs=args.epochs, lr=args.lr, batch_size=args.batch_size, net_cls=net_cls)
 
     torch.save(net.state_dict(), args.out)
     print('poids pre-entraines sauvegardes dans', args.out)

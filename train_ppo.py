@@ -59,7 +59,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from coinche.rl_agent import (
-    STATE_DIM, FULL_STATE_DIM, CardNet, encode_state, encode_full_state,
+    STATE_DIM, FULL_STATE_DIM, CardNet, CardNetBig, encode_state, encode_full_state,
     _canonical_slots, _slot_index, torch,
 )
 from train import (
@@ -107,9 +107,9 @@ if torch is not None:
         (evaluation) joue en glouton (argmax) sans rien memoriser."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
                      entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False,
-                     ablate_points=False):
+                     ablate_points=False, policy_net_cls=CardNet):
             self.device = device
-            self.policy_net = CardNet().to(device)
+            self.policy_net = policy_net_cls().to(device)
             self.value_net = ValueNet().to(device)
             self.optimizer = torch.optim.Adam(
                 list(self.policy_net.parameters()) + list(self.value_net.parameters()), lr=lr)

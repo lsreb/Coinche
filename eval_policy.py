@@ -39,6 +39,7 @@ import random
 
 from coinche.game import GameEngine
 from coinche.players import HeuristicPlayer, RLPlayer
+from coinche.rl_agent import CardNet, CardNetBig
 from train_ppo import PPOPolicy, torch
 
 
@@ -109,19 +110,24 @@ def main():
                               "--ablate-points-so-far) a TOUS les checkpoints de cet appel -- pour comparer un "
                               "groupe ablate a un autre, lancer eval_policy.py une fois par groupe (memes "
                               "--games/--seed => memes donnes generees, cf. generate_fixed_deals).")
+    parser.add_argument('--architecture', choices=['small', 'big'], default='small',
+                         help="'small' = CardNet (defaut), 'big' = CardNetBig (remarques_rl.md point 6) "
+                              "-- s'applique a TOUS les checkpoints non-heuristic de cet appel ; melanger "
+                              "small/big necessite deux appels separes (meme --games/--seed => memes donnes).")
     args = parser.parse_args()
 
     if torch is None:
         raise SystemExit("torch est requis pour evaluer une NeuralPolicy (voir requirements.txt).")
 
     deals = generate_fixed_deals(args.games, args.seed)
+    policy_net_cls = CardNetBig if args.architecture == 'big' else CardNet
 
     results = []
     for path in args.checkpoints:
         if path == 'heuristic':
             factory = lambda: [HeuristicPlayer(f'H{i}') for i in range(4)]
         else:
-            policy = PPOPolicy(ablate_points=args.ablate_points_so_far)
+            policy = PPOPolicy(ablate_points=args.ablate_points_so_far, policy_net_cls=policy_net_cls)
             policy.load(path)
             policy.record = False
             factory = lambda policy=policy: [
