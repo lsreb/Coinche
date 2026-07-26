@@ -98,7 +98,62 @@ general :
   critic centralise + taches auxiliaires, jamais testee -- cette premiere
   etape isolee ne prejuge pas du resultat une fois le critic implique.
 
+## `lr=3e-5`, n=2 (partiel) : variance plus large, pas encore de conclusion
+
+Seed21 ajoute (meme protocole, `lr=3e-5`) :
+
+| seed | eval_avg(45000) |
+|---|---|
+| 20 | +11.51 |
+| 21 | +15.37 |
+
+Moyenne 13.44 (n=2) -- proche de la moyenne `lr=1e-4` (13.64, n=3), mais
+avec un ecart bien plus large entre les deux seeds (3.86 points, contre
+1.19 sur les 3 seeds `lr=1e-4`) -- pas encore assez de seeds pour dire si
+`lr=3e-5` a une vraie variance plus grande ou si c'est juste n=2. Le
+seed21 seul (+15.37) tombe pile dans le plateau `CardNet` habituel
+(~15.1-15.2). **Pas de conclusion sur lequel des deux lr est meilleur a
+ce stade** -- un 3e seed a `lr=3e-5` serait necessaire pour comparer a
+rigueur egale.
+
+## Piste ouverte : la policy issue de l'imitation est-elle trop confiante ?
+
+Hypothese testee (discussion 2026-07-26) : la legere sous-performance de
+`CardNetBig` pourrait venir d'un point de depart d'imitation trop
+confiant/peu plastique pour le fine-tuning REINFORCE (gradient de policy
+bruite, une seule mise a jour par donne), plutot que d'un probleme de
+capacite ou de vanishing gradient (peu plausible ici : reseau peu
+profond, GELU + LayerNorm Pre-LN deja concus pour eviter ca, et les
+trajectoires d'entrainement montrent un vrai mouvement, pas une
+stagnation).
+
+**Test A (verifie)** : entropie de la policy juste apres imitation (avant
+tout RL), sur un echantillon de 16000 decisions (500 donnes heuristic x4) :
+
+| | entropie moyenne | top1_prob moyen |
+|---|---|---|
+| `CardNet` (`imit.pt`) | 0.2153 (std=0.3186) | 91.5% |
+| `CardNetBig` (`imit_bignet.pt`) | **0.0848** (std=0.1972) | **96.6%** |
+
+**Confirme l'hypothese** : `CardNetBig` sort de l'imitation avec une
+entropie ~2.5x plus faible -- distribution bien plus pointue (96.6% de la
+masse sur le coup prefere, contre 91.5%). Coherent avec un point de
+depart trop confiant, meme si ca ne prouve pas encore le lien de causalite
+avec la performance RL finale.
+
+**A tester ensuite** : `entropy-beta=0.006` (facteur ~2.5-3x l'actuel
+0.002, calibre sur l'ecart d'entropie mesure -- prefere a un saut
+arbitraire type 0.02, par prudence : on ne connait pas la sensibilite de
+ce reseau a ce coefficient, et augmenter trop pourrait tout aussi bien
+sur-corriger vers une policy trop aleatoire). Plan : mesurer d'abord
+l'entropie post-entrainement des 5 checkpoints deja entraines a 0.002
+(reutilise les checkpoints existants, aucun nouvel entrainement
+necessaire) comme reference, puis lancer un run court (20000 episodes)
+a 0.006 pour verifier que l'entropie realisee augmente comme attendu,
+avant d'investir dans une comparaison complete a 100k episodes.
+
 **A faire si on veut poursuivre** : confirmer/infirmer `lr=3e-5` a
-plusieurs seeds avant de trancher entre les deux lr ; tester PPO avec
+plusieurs seeds avant de trancher entre les deux lr ; tester
+`entropy-beta` plus eleve (piste ci-dessus) ; tester PPO avec
 `CardNetBig` (jamais fait, seulement REINFORCE jusqu'ici) ; puis passer a
 l'etape 2 du plan (tronc partage).
