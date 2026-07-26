@@ -13,6 +13,8 @@ rl_experiments_v2/exp_growing_pool/*_checkpoints/
 rl_experiments_v2/exp_ppo_round1*_checkpoints/
 rl_experiments_v3/*_checkpoints/
 rl_experiments_v3/**/*_checkpoints/
+rl_experiments_v4/*_checkpoints/
+rl_experiments_v4/**/*_checkpoints/
 
 # C extensions
 *.so
@@ -233,3 +235,4 @@ __marimo__/
 !rl_experiments_v2/exp_growing_pool_orchestrator.log
 !rl_experiments_v2/exp_ppo_round1*/*.log
 !rl_experiments_v3/*/*.log
+!rl_experiments_v4/*/*.log
