@@ -205,18 +205,42 @@ supplementaire. Meme architecture que `imit_bignet.pt` (aucune rupture de
 compatibilite, reste dans cette lignee v4, pas une nouvelle lignee --
 seul le point d'arret de l'entrainement change, pas la forme des poids).
 
-**A faire** : fine-tuning REINFORCE depuis `imit_bignet_ent02.pt` (au lieu
-de `imit_bignet.pt`), memes lr testes (`3e-5`, `1e-4`), pour voir si
-partir d'une entropie comparable a `CardNet` resout la sous-performance
-observee.
+## REINFORCE depuis `imit_bignet_ent02.pt` (seed20, lr=3e-5) : resultat spectaculaire, 1 seed
+
+Meme protocole exactement que les runs precedents (`lr=3e-5,
+entropy-beta=0.002, entropy-decay=none, opponent=heuristic, 100k
+episodes`), mais depuis `imit_bignet_ent02.pt` (entropie 0.192, epoch 5)
+au lieu de `imit_bignet.pt` (entropie 0.0848, epoch 20).
+
+| | eval_avg(45000) |
+|---|---|
+| heuristic (reference) | -0.51 |
+| **`imit_bignet_ent02.pt` + REINFORCE lr=3e-5** | **+25.04** |
+
+Pour comparaison : plateau `CardNet` etabli (~15.1-15.2, plusieurs
+seeds) ; `CardNetBig` depuis l'ancien `imit_bignet.pt` a lr=3e-5 (n=2) :
+11.51, 15.37 (moyenne 13.44). **+25.04 est nettement au-dessus de tout ce
+qui a ete mesure jusqu'ici dans cette lignee** -- quasiment le double du
+plateau habituel, sur un seul seed.
+
+**Prudence de rigueur (comme partout dans cette session)** : un resultat
+aussi spectaculaire sur un seul seed a systematiquement besoin d'etre
+confirme avant d'etre cru -- historique de cette session rempli de
+signaux prometteurs a n=1 qui se sont degonfles (`epochs=16`, critic
+centralise a n=3) ou, au contraire, confirmes (pool grandissant). Rien
+ne permet encore de trancher dans quel camp celui-ci tombe.
+
+**A faire, priorite** : 2 seeds de plus (meme config) pour confirmer ou
+infirmer ce resultat avant d'y accorder du poids.
 
 ## A faire si on veut poursuivre
 
-- Lancer le fine-tuning REINFORCE depuis `imit_bignet_ent02.pt` (piste
-  ci-dessus, prioritaire).
-- Confirmer/infirmer `lr=3e-5` a plusieurs seeds (avec l'ancien
-  `imit_bignet.pt`) avant de trancher entre les deux lr, si la piste
-  ci-dessus ne suffit pas a expliquer l'ecart.
+- Confirmer `imit_bignet_ent02.pt` + lr=3e-5 a plusieurs seeds (priorite,
+  piste ci-dessus).
+- Si confirme : refaire aussi `lr=1e-4` depuis ce meme point de depart,
+  et tester PPO avec `CardNetBig` + `imit_bignet_ent02.pt`.
+- Si non confirme : revenir a `lr=3e-5` a plusieurs seeds avec l'ancien
+  `imit_bignet.pt` avant de trancher entre les deux lr.
 - Tester PPO avec `CardNetBig` (jamais fait, seulement REINFORCE
   jusqu'ici).
 - Puis passer a l'etape 2 du plan (tronc partage acteur/critic + critic
