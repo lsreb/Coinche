@@ -812,6 +812,45 @@ comme reference, ni de l'algorithme utilise pour le pool lui-meme.
 plus (`run_growing_pool_ppo.py --seed-start 21` puis `22`), meme demarche
 que pour REINFORCE.
 
+### Seed21 PPO (n=2) : meme pattern exceptionless
+
+Seed21 PPO (meme config, ~1h40) : `eval_avg` vs heuristic seul monte avec
+un leger zigzag (+13.25 -> +16.50 -> +16.47 -> +19.32 -> +17.26 ->
+**+18.36**), coherent avec seed20 (+19.86).
+
+Round-robin etendu a 13 specs (heuristic, vanille PPO, REINFORCE simple,
+pool REINFORCE seed20/21/22 x early/final, pool PPO seed20/21 x
+early/final ; seules les 46 nouvelles paires impliquant seed21 PPO ont
+ete rejouees, n=10000, memes donnes que le reste de cette section).
+Force moyenne corrigee du biais de siege, contre les 12 autres :
+
+| | force moyenne |
+|---|---|
+| **pool PPO/seed20 final** | **+8.76** |
+| pool PPO/seed21 final | +8.40 |
+| pool REINFORCE/seed22 final | +8.37 |
+| pool REINFORCE/seed21 final | +6.95 |
+| pool REINFORCE/seed20 final | +2.28 |
+| REINFORCE simple | -0.28 |
+| vanille (PPO simple) | -1.05 |
+| pool PPO/seed21 precoce | -2.37 |
+| pool REINFORCE/seed22 precoce | -2.60 |
+| pool REINFORCE/seed21 precoce | -3.17 |
+| pool PPO/seed20 precoce | -3.98 |
+| pool REINFORCE/seed20 precoce | -5.23 |
+| heuristic | -15.61 |
+
+**Sans exception, sur 13 entites** : les 5 checkpoints finaux (2 PPO + 3
+REINFORCE) occupent les 5 premieres places, loin devant les deux
+entrainements simples ; les 5 checkpoints precoces sont tous en dessous
+des deux simples. Les 3 meilleurs (PPO seed20/21, REINFORCE seed22 --
++8.76/+8.40/+8.37) sont essentiellement a egalite entre eux, mais tous
+nettement detaches du groupe simple. Confirme desormais a n=2 pour PPO
+avec le meme pattern exceptionless que REINFORCE a n=3.
+
+**A refaire** : seed22 PPO (dernier des 3 prevus) pour n=3 complet,
+symetrique a REINFORCE.
+
 ## A refaire dans cette lignee si on veut poursuivre
 
 - Si on veut vraiment distinguer `epochs=8` (PPO) de REINFORCE `lr=1e-4`
