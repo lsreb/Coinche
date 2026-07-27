@@ -91,6 +91,8 @@ Quand l'attaque n'a plus qu'une couleur forte en main (un seul As maitre, pas de
 
 Voir 2.1.2 à SA, mais en considérant les valets au lieu des As, et les 9 au lieu des 10.
 
+Remarque : visiblement, que ce soit en attaque ou en défense peut-être, le code fait défausser les valets extrêmement vite, comme s'ils ne valaient rien. C'est complètement à côté de la plaque.
+
 A TA contrairement à SA, le partenaire de celui qui a initié le contrat TA cherche à ouvrir dans la couleur de son 9 second (ou troisième ou plus) pour faire comprendre à son partenaire qu'il a le 9.
 
 # 2.2) Jeu de défense
