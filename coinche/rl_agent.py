@@ -389,6 +389,101 @@ if torch is not None:
             x = F.gelu(self.fc3(self.ln3(x)))
             return self.fc4(self.ln4(x))
 
+    class SharedTrunkActorCritic(nn.Module):
+        """Etape 2 du plan (remarques_rl.md point 6) : tronc partage entre
+        l'acteur et le critic centralise, pour que l'info privilegiee (mains
+        des 3 autres, cf. encode_full_state) puisse enfin influencer la
+        representation de l'acteur -- contrairement au critic centralise
+        deja teste (ValueNet independant de CardNet, sans effet possible sur
+        l'acteur par construction, cf. rl_experiments_v3/README.md).
+
+        Tronc partage (ln1/fc1/ln2/fc2, 167->128->128) : memes noms de
+        parametres et memes formes que les 2 premieres couches de
+        CardNetBig, pour pouvoir reprendre un imit_bignet*.pt deja entraine
+        comme point de depart (cf. load_actor_from_cardnetbig ci-dessous).
+
+        Tete acteur (ln3_actor/fc3_actor/ln4_actor/fc4_actor, 128->64->32) :
+        reprend a l'identique la 2e moitie de CardNetBig -- meme
+        remappage possible depuis un checkpoint CardNetBig existant.
+
+        Tete critic : recoit en plus l'info centralisee (mains des 3 autres,
+        96-dim, deja dans encode_full_state) via une petite branche separee
+        a une seule couche (ln_central/fc_central, 96->32 -- volontairement
+        peu profonde, cf. discussion du 2026-07-27 : role plus structurel
+        que strategique, la profondeur utile est deja dans le tronc partage
+        et la tete critic elle-meme), concatenee a la sortie du tronc
+        partage (128+32=160) avant 1 couche cachee privee
+        (ln3_critic/fc3_critic, 160->64) puis la sortie scalaire
+        (ln4_critic/fc4_critic, 64->1)."""
+        def __init__(self, in_dim=STATE_DIM, other_dim=FULL_STATE_DIM - STATE_DIM,
+                     trunk_hidden=128, actor_hidden=64, central_hidden=32, critic_hidden=64):
+            super().__init__()
+            # Tronc partage (identique en forme/noms aux 2 premieres couches de CardNetBig).
+            self.ln1 = nn.LayerNorm(in_dim)
+            self.fc1 = nn.Linear(in_dim, trunk_hidden)
+            self.ln2 = nn.LayerNorm(trunk_hidden)
+            self.fc2 = nn.Linear(trunk_hidden, trunk_hidden)
+
+            # Tete acteur (identique en forme/noms a la 2e moitie de CardNetBig).
+            self.ln3_actor = nn.LayerNorm(trunk_hidden)
+            self.fc3_actor = nn.Linear(trunk_hidden, actor_hidden)
+            self.ln4_actor = nn.LayerNorm(actor_hidden)
+            self.fc4_actor = nn.Linear(actor_hidden, 32)
+
+            # Branche info centralisee (critic seul) + tete critic.
+            self.ln_central = nn.LayerNorm(other_dim)
+            self.fc_central = nn.Linear(other_dim, central_hidden)
+            self.ln3_critic = nn.LayerNorm(trunk_hidden + central_hidden)
+            self.fc3_critic = nn.Linear(trunk_hidden + central_hidden, critic_hidden)
+            self.ln4_critic = nn.LayerNorm(critic_hidden)
+            self.fc4_critic = nn.Linear(critic_hidden, 1)
+
+            self._state_dim = in_dim
+
+        def _trunk(self, x):
+            x = F.gelu(self.fc1(self.ln1(x)))
+            x = F.gelu(self.fc2(self.ln2(x)))
+            return x
+
+        def forward_actor(self, x):
+            h = self._trunk(x)
+            h = F.gelu(self.fc3_actor(self.ln3_actor(h)))
+            return self.fc4_actor(self.ln4_actor(h))
+
+        def forward_critic(self, x_full):
+            x = x_full[..., :self._state_dim]
+            other = x_full[..., self._state_dim:]
+            h = self._trunk(x)
+            c = F.gelu(self.fc_central(self.ln_central(other)))
+            h = torch.cat([h, c], dim=-1)
+            h = F.gelu(self.fc3_critic(self.ln3_critic(h)))
+            return self.fc4_critic(self.ln4_critic(h)).squeeze(-1)
+
+        def load_actor_from_cardnetbig(self, path, map_location='cpu'):
+            """Reprend le tronc partage + la tete acteur depuis un checkpoint
+            CardNetBig deja entraine (ex. imit_bignet_ent02.pt) -- meme forme,
+            simple remappage de noms (fc3/ln3/fc4/ln4 -> *_actor). La partie
+            critic (branche centralisee + tete critic) reste initialisee
+            aleatoirement : rien d'equivalent n'existe dans un checkpoint
+            CardNetBig (reseau independant, jamais entraine avec l'info
+            centralisee)."""
+            obj = torch.load(path, map_location=map_location)
+            state_dict = obj['policy'] if isinstance(obj, dict) and 'policy' in obj else obj
+            remap = {
+                'fc1.weight': 'fc1.weight', 'fc1.bias': 'fc1.bias',
+                'ln1.weight': 'ln1.weight', 'ln1.bias': 'ln1.bias',
+                'fc2.weight': 'fc2.weight', 'fc2.bias': 'fc2.bias',
+                'ln2.weight': 'ln2.weight', 'ln2.bias': 'ln2.bias',
+                'fc3.weight': 'fc3_actor.weight', 'fc3.bias': 'fc3_actor.bias',
+                'ln3.weight': 'ln3_actor.weight', 'ln3.bias': 'ln3_actor.bias',
+                'fc4.weight': 'fc4_actor.weight', 'fc4.bias': 'fc4_actor.bias',
+                'ln4.weight': 'ln4_actor.weight', 'ln4.bias': 'ln4_actor.bias',
+            }
+            own_state = self.state_dict()
+            for src_key, dst_key in remap.items():
+                own_state[dst_key] = state_dict[src_key]
+            self.load_state_dict(own_state)
+
     class NeuralPolicy:
         """Policy entraînable par REINFORCE. `record=True` (par défaut) échantillonne
         et mémorise le log-prob de chaque décision ; `record=False` (évaluation)

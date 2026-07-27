@@ -256,3 +256,57 @@ desormais bien confirme (n=3, std=1.05).
 - Puis passer a l'etape 2 du plan (tronc partage acteur/critic + critic
   centralise, `coinche/remarques_rl.md` point 6) -- avec ce nouveau point
   de depart d'imitation desormais comme reference a battre.
+
+## `lr=1e-4` depuis `imit_bignet_ent02.pt` (seed20) : bien plus faible que `lr=3e-5`
+
+Meme protocole, seul le lr change : **eval_avg(45000) = +11.81** -- tres
+en dessous de la moyenne confirmee a `lr=3e-5` (24.42, std=1.05 sur 3
+seeds). Ecart (~12.6 points) largement au-dela du bruit inter-seeds
+observe a `lr=3e-5`, donc probablement pas un simple seed malchanceux :
+`lr=3e-5` semble specifiquement necessaire pour exploiter ce nouveau
+point de depart, contrairement au petit `CardNet` ou `lr=3e-5` et
+`lr=1e-4` etaient statistiquement indiscernables. Un seul seed pour
+l'instant a `lr=1e-4` -- pas encore de seeds supplementaires prevus, ce
+point est secondaire par rapport a la confirmation n=3 de `lr=3e-5`.
+
+## Etape 2 du plan : tronc partage acteur/critic + critic centralise
+
+Implemente (pas encore teste en conditions reelles) : `SharedTrunkActorCritic`
+(`coinche/rl_agent.py`) et `SharedTrunkPPOPolicy` (`train_ppo.py`,
+`--architecture shared`).
+
+Architecture (discussion du 2026-07-27) :
+- **Tronc partage** (acteur + critic) : les 2 premieres couches de
+  `CardNetBig` (`167->128->128`, GELU + LayerNorm Pre-LN) -- memes noms
+  de parametres que `CardNetBig` pour pouvoir reprendre un
+  `imit_bignet_ent02.pt` deja entraine comme point de depart
+  (`SharedTrunkActorCritic.load_actor_from_cardnetbig`, verifie bit a bit
+  identique a `CardNetBig` sur le meme checkpoint).
+- **Tete acteur** : continue seule, `128->64->32` -- identique en
+  forme/noms a la 2e moitie de `CardNetBig`, comportement de la policy
+  inchange a poids egaux.
+- **Tete critic** : recoit en plus l'info centralisee (mains des 3
+  autres, 96-dim, deja dans `encode_full_state`) via une seule couche
+  separee (`96->32`, choix delibere : role plus structurel que
+  strategique, discussion du 2026-07-27), concatenee a la sortie du
+  tronc partage (`128+32=160`) avant 1 couche cachee privee (`160->64`)
+  puis la sortie scalaire.
+- Pas de taches auxiliaires dans cette premiere version (decision du
+  2026-07-27 : isoler l'effet du tronc partage seul avant d'ajouter cette
+  complexite).
+
+Le point cle par rapport aux 4 tentatives precedentes sur le critic
+(toutes avec un `ValueNet` totalement independant de `CardNet`) : ici le
+gradient de `value_loss` traverse aussi le tronc partage, donc l'info
+centralisee peut enfin influencer la representation que l'acteur utilise
+-- mecanisme qui manquait par construction a toutes les tentatives
+anterieures.
+
+Smoke-teste bout en bout (chargement depuis `imit_bignet_ent02.pt`, 200
+episodes d'entrainement, sauvegarde/rechargement, `eval_policy.py
+--architecture shared`) -- aucune erreur. **Pas encore lance en
+conditions reelles.**
+
+**A faire** : premier run complet (100k episodes, `lr=3e-5`, depuis
+`imit_bignet_ent02.pt`) pour comparer a la reference REINFORCE
+`CardNetBig` actuelle (24.42, std=1.05, n=3).

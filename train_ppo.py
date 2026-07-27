@@ -59,8 +59,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from coinche.rl_agent import (
-    STATE_DIM, FULL_STATE_DIM, CardNet, CardNetBig, encode_state, encode_full_state,
-    _canonical_slots, _slot_index, torch,
+    STATE_DIM, FULL_STATE_DIM, CardNet, CardNetBig, SharedTrunkActorCritic,
+    encode_state, encode_full_state, _canonical_slots, _slot_index, torch,
 )
 from train import (
     build_opponent_pool, PFSPSampler, run_episode, counterfactual_reward,
@@ -304,6 +304,149 @@ if torch is not None:
             obj = torch.load(path, map_location=self.device)
             self.value_net.load_state_dict(obj['value'] if 'value' in obj else obj)
 
+    class SharedTrunkPPOPolicy:
+        """Variante de PPOPolicy pour l'etape 2 du plan (remarques_rl.md point
+        6, discussion du 2026-07-27) : acteur et critic partagent un seul
+        reseau (SharedTrunkActorCritic) au lieu de deux troncs independants
+        (CardNet + ValueNet). Meme interface que PPOPolicy (choose_card,
+        end_episode, update_batch, save, load) pour rester compatible avec
+        RLPlayer/run_episode/evaluate/eval_policy.py sans les modifier.
+
+        Contrairement a PPOPolicy, il n'y a plus qu'un seul reseau/optimiseur
+        (le tronc partage recoit le gradient a la fois de policy_loss et de
+        value_loss) -- exactement le mecanisme qui manquait aux tentatives
+        precedentes sur le critic (toutes avec un ValueNet independant, donc
+        sans effet possible sur l'acteur par construction)."""
+        def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
+                     entropy_coef=0.01, epochs=4, minibatch_size=64):
+            self.device = device
+            self.net = SharedTrunkActorCritic().to(device)
+            self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
+            self.clip_eps = clip_eps
+            self.value_coef = value_coef
+            self.entropy_coef = entropy_coef
+            self.epochs = epochs
+            self.minibatch_size = minibatch_size
+            self.record = True
+            self._traj = []
+            self._episodes = []
+
+        def choose_card(self, player, legal, leader, trick, trump):
+            x = torch.tensor(encode_state(player, trick, trump), dtype=torch.float32, device=self.device)
+            logits = self.net.forward_actor(x)
+            suits, orders = _canonical_slots(trump)
+            mask = torch.full((32,), float('-inf'), device=self.device)
+            legal_idx = [_slot_index(c.suit, c.rank, suits, orders) for c in legal]
+            mask[legal_idx] = 0.0
+            masked_logits = logits + mask
+
+            if self.record:
+                x_full = torch.tensor(encode_full_state(player, trick, trump),
+                                       dtype=torch.float32, device=self.device)
+                value = self.net.forward_critic(x_full)
+                dist = torch.distributions.Categorical(logits=masked_logits)
+                action_idx = dist.sample()
+                self._traj.append((x.detach(), x_full.detach(), int(action_idx.item()),
+                                    dist.log_prob(action_idx).detach(), value.detach(),
+                                    mask.detach()))
+            else:
+                action_idx = torch.argmax(masked_logits)
+
+            slot, rank_pos = divmod(int(action_idx.item()), 8)
+            chosen_suit, chosen_rank = suits[slot], orders[slot][rank_pos]
+            return next(c for c in legal if c.suit == chosen_suit and c.rank == chosen_rank)
+
+        def end_episode(self, reward):
+            if not self._traj:
+                return
+            self._episodes.append((self._traj, reward))
+            self._traj = []
+
+        def update_batch(self):
+            """Identique a PPOPolicy.update_batch, sauf que policy_net/value_net
+            sont remplaces par les deux methodes forward_actor/forward_critic
+            du meme reseau partage -- un seul optimiseur, un seul .backward()
+            par minibatch (le gradient de value_loss traverse aussi le tronc
+            partage)."""
+            if not self._episodes:
+                return None
+            states, full_states, actions, old_log_probs, old_values, masks, returns = [], [], [], [], [], [], []
+            for traj, reward in self._episodes:
+                for x, x_full, action_idx, old_lp, old_v, mask in traj:
+                    states.append(x)
+                    full_states.append(x_full)
+                    actions.append(action_idx)
+                    old_log_probs.append(old_lp)
+                    old_values.append(old_v)
+                    masks.append(mask)
+                    returns.append(reward)
+            self._episodes = []
+
+            states = torch.stack(states)
+            full_states = torch.stack(full_states)
+            actions = torch.tensor(actions, dtype=torch.long, device=self.device)
+            old_log_probs = torch.stack(old_log_probs)
+            old_values = torch.stack(old_values)
+            masks = torch.stack(masks)
+            returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
+            advantages = returns - old_values
+            return_scale = returns.std() + 1e-6
+            if advantages.numel() > 1:
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+
+            n = states.shape[0]
+            order = list(range(n))
+            total_policy_loss = total_value_loss = total_entropy = total_clip_frac = 0.0
+            n_updates = 0
+            for _ in range(self.epochs):
+                random.shuffle(order)
+                for start in range(0, n, self.minibatch_size):
+                    mb = torch.tensor(order[start:start + self.minibatch_size], dtype=torch.long, device=self.device)
+                    logits = self.net.forward_actor(states[mb])
+                    dist = torch.distributions.Categorical(logits=logits + masks[mb])
+                    new_log_probs = dist.log_prob(actions[mb])
+                    ratio = torch.exp(new_log_probs - old_log_probs[mb])
+                    adv = advantages[mb]
+                    surr1 = ratio * adv
+                    surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * adv
+                    policy_loss = -torch.min(surr1, surr2).mean()
+                    entropy = dist.entropy().mean()
+                    values = self.net.forward_critic(full_states[mb])
+                    value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
+                    loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+                    clip_frac = ((ratio - 1.0).abs() > self.clip_eps).float().mean()
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.optimizer.step()
+
+                    total_policy_loss += policy_loss.item()
+                    total_value_loss += value_loss.item()
+                    total_entropy += entropy.item()
+                    total_clip_frac += clip_frac.item()
+                    n_updates += 1
+
+            return (total_policy_loss / n_updates, total_value_loss / n_updates,
+                    total_entropy / n_updates, total_clip_frac / n_updates)
+
+        def save(self, path):
+            """Checkpoint natif : un seul reseau, contrairement au dict a 2
+            cles de PPOPolicy.save() (plus de policy_net/value_net separes)."""
+            torch.save(self.net.state_dict(), path)
+
+        def load(self, path):
+            """Charge soit un checkpoint SharedTrunkPPOPolicy natif (cle
+            'fc3_actor.weight'), soit un checkpoint CardNetBig (cle 'fc3.weight',
+            ex. imit_bignet_ent02.pt) via SharedTrunkActorCritic.load_actor_from_cardnetbig
+            -- la partie critic reste alors initialisee aleatoirement."""
+            obj = torch.load(path, map_location=self.device)
+            if 'fc3_actor.weight' in obj:
+                self.net.load_state_dict(obj)
+            elif 'fc3.weight' in obj:
+                self.net.load_actor_from_cardnetbig(path, map_location=self.device)
+            else:
+                raise ValueError(f"Format de checkpoint non reconnu pour SharedTrunkPPOPolicy : {path}")
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -335,6 +478,14 @@ def main():
                               "(acteur et critic), pour isoler son effet sur la performance. --load doit "
                               "pointer vers un imit.pt genere avec le meme flag (pretrain.py "
                               "--ablate-points-so-far).")
+    parser.add_argument('--architecture', choices=['small', 'big', 'shared'], default='small',
+                         help="'small' = CardNet+ValueNet independants (defaut). 'big' = CardNetBig+ValueNet "
+                              "independants. 'shared' = SharedTrunkActorCritic (etape 2 du plan, "
+                              "remarques_rl.md point 6) : tronc partage acteur/critic, --no-critic-baseline "
+                              "et --ablate-points-so-far non supportes avec cette architecture. --load "
+                              "accepte alors soit un checkpoint SharedTrunkPPOPolicy natif, soit un "
+                              "checkpoint CardNetBig (ex. imit_bignet_ent02.pt, la partie critic demarre "
+                              "alors aleatoire).")
     parser.add_argument('--opponent', default='heuristic',
                          help="Adversaire(s) aux sieges 1/3, separes par des virgules : meme semantique que "
                               "train.py --opponent (heuristic et/ou chemins de poids, pool si plusieurs).")
@@ -369,14 +520,26 @@ def main():
     sampler = PFSPSampler(opponent_pool, refresh_every=args.pfsp_refresh_every,
                            temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
 
-    policy = PPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
-                        entropy_coef=args.entropy_coef, epochs=args.epochs, minibatch_size=args.minibatch_size,
-                        no_critic_baseline=args.no_critic_baseline,
-                        ablate_points=args.ablate_points_so_far)
+    if args.architecture == 'shared':
+        if args.no_critic_baseline or args.ablate_points_so_far:
+            raise SystemExit("--no-critic-baseline et --ablate-points-so-far ne sont pas "
+                              "supportes avec --architecture shared.")
+        policy = SharedTrunkPPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
+                                       entropy_coef=args.entropy_coef, epochs=args.epochs,
+                                       minibatch_size=args.minibatch_size)
+    else:
+        policy_net_cls = CardNetBig if args.architecture == 'big' else CardNet
+        policy = PPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
+                            entropy_coef=args.entropy_coef, epochs=args.epochs, minibatch_size=args.minibatch_size,
+                            no_critic_baseline=args.no_critic_baseline,
+                            ablate_points=args.ablate_points_so_far, policy_net_cls=policy_net_cls)
     if args.load:
         policy.load(args.load)
         print('poids charges depuis', args.load)
     if args.load_value:
+        if args.architecture == 'shared':
+            raise SystemExit("--load-value n'a pas de sens avec --architecture shared "
+                              "(un seul reseau, pas de value_net separee).")
         policy.load_value(args.load_value)
         print('poids de value_net charges depuis', args.load_value)
 

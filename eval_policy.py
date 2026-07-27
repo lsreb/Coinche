@@ -40,7 +40,7 @@ import random
 from coinche.game import GameEngine
 from coinche.players import HeuristicPlayer, RLPlayer
 from coinche.rl_agent import CardNet, CardNetBig
-from train_ppo import PPOPolicy, torch
+from train_ppo import PPOPolicy, SharedTrunkPPOPolicy, torch
 
 
 def _leads_to_all_pass(hands, dealer):
@@ -110,10 +110,11 @@ def main():
                               "--ablate-points-so-far) a TOUS les checkpoints de cet appel -- pour comparer un "
                               "groupe ablate a un autre, lancer eval_policy.py une fois par groupe (memes "
                               "--games/--seed => memes donnes generees, cf. generate_fixed_deals).")
-    parser.add_argument('--architecture', choices=['small', 'big'], default='small',
-                         help="'small' = CardNet (defaut), 'big' = CardNetBig (remarques_rl.md point 6) "
-                              "-- s'applique a TOUS les checkpoints non-heuristic de cet appel ; melanger "
-                              "small/big necessite deux appels separes (meme --games/--seed => memes donnes).")
+    parser.add_argument('--architecture', choices=['small', 'big', 'shared'], default='small',
+                         help="'small' = CardNet (defaut), 'big' = CardNetBig, 'shared' = "
+                              "SharedTrunkActorCritic (remarques_rl.md point 6) -- s'applique a TOUS les "
+                              "checkpoints non-heuristic de cet appel ; melanger plusieurs architectures "
+                              "necessite un appel separe par groupe (meme --games/--seed => memes donnes).")
     args = parser.parse_args()
 
     if torch is None:
@@ -127,7 +128,10 @@ def main():
         if path == 'heuristic':
             factory = lambda: [HeuristicPlayer(f'H{i}') for i in range(4)]
         else:
-            policy = PPOPolicy(ablate_points=args.ablate_points_so_far, policy_net_cls=policy_net_cls)
+            if args.architecture == 'shared':
+                policy = SharedTrunkPPOPolicy()
+            else:
+                policy = PPOPolicy(ablate_points=args.ablate_points_so_far, policy_net_cls=policy_net_cls)
             policy.load(path)
             policy.record = False
             factory = lambda policy=policy: [
