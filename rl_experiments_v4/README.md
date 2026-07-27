@@ -205,43 +205,54 @@ supplementaire. Meme architecture que `imit_bignet.pt` (aucune rupture de
 compatibilite, reste dans cette lignee v4, pas une nouvelle lignee --
 seul le point d'arret de l'entrainement change, pas la forme des poids).
 
-## REINFORCE depuis `imit_bignet_ent02.pt` (seed20, lr=3e-5) : resultat spectaculaire, 1 seed
+## REINFORCE depuis `imit_bignet_ent02.pt` (lr=3e-5) : gain massif, CONFIRME a n=3
 
 Meme protocole exactement que les runs precedents (`lr=3e-5,
 entropy-beta=0.002, entropy-decay=none, opponent=heuristic, 100k
 episodes`), mais depuis `imit_bignet_ent02.pt` (entropie 0.192, epoch 5)
 au lieu de `imit_bignet.pt` (entropie 0.0848, epoch 20).
 
-| | eval_avg(45000) |
+| seed | eval_avg(45000) |
 |---|---|
-| heuristic (reference) | -0.51 |
-| **`imit_bignet_ent02.pt` + REINFORCE lr=3e-5** | **+25.04** |
+| 20 | +25.04 |
+| 21 | +23.21 |
+| 22 | +25.00 |
 
-Pour comparaison : plateau `CardNet` etabli (~15.1-15.2, plusieurs
-seeds) ; `CardNetBig` depuis l'ancien `imit_bignet.pt` a lr=3e-5 (n=2) :
-11.51, 15.37 (moyenne 13.44). **+25.04 est nettement au-dessus de tout ce
-qui a ete mesure jusqu'ici dans cette lignee** -- quasiment le double du
-plateau habituel, sur un seul seed.
+Moyenne **24.42**, ecart-type **1.05** (n=3) -- tres serre, un vrai
+signal, pas du bruit. Pour comparaison : plateau `CardNet` etabli (PPO
+`epochs=8` : 15.13/std=0.39 ; REINFORCE `lr=3e-5` : 15.15/std=0.40, tous
+sur plusieurs seeds) ; `CardNetBig` depuis l'ancien `imit_bignet.pt`
+(imitation a convergence complete) a `lr=3e-5` (n=2) : 11.51, 15.37
+(moyenne 13.44, borderline pire que `CardNet`).
 
-**Prudence de rigueur (comme partout dans cette session)** : un resultat
-aussi spectaculaire sur un seul seed a systematiquement besoin d'etre
-confirme avant d'etre cru -- historique de cette session rempli de
-signaux prometteurs a n=1 qui se sont degonfles (`epochs=16`, critic
-centralise a n=3) ou, au contraire, confirmes (pool grandissant). Rien
-ne permet encore de trancher dans quel camp celui-ci tombe.
+**Delta de +9.27 points par rapport au plateau REINFORCE `lr=3e-5` de
+`CardNet`** -- test de Welch t≈14.6, des dizaines d'erreurs-types
+au-dessus de tout seuil de significativite. C'est de loin le resultat le
+plus large et le mieux confirme de toute la session (REINFORCE ou PPO,
+v3 ou v4).
 
-**A faire, priorite** : 2 seeds de plus (meme config) pour confirmer ou
-infirmer ce resultat avant d'y accorder du poids.
+**Conclusion** : l'hypothese complete tenait. La capacite supplementaire
+de `CardNetBig` (128/128/64, GELU, LayerNorm Pre-LN) aide bel et bien --
+mais seulement si on evite le point de depart trop confiant issu d'une
+imitation poussee a convergence complete (entropie 0.0848, ou le bonus
+d'entropie pendant le RL n'a aucune prise, cf. sections precedentes).
+En arretant l'imitation a une entropie cible (~0.20, niveau de
+`CardNet`) au lieu d'aller jusqu'a convergence, le fine-tuning REINFORCE
+part d'un point bien plus exploitable et debloque un gain massif et
+desormais bien confirme (n=3, std=1.05).
 
 ## A faire si on veut poursuivre
 
-- Confirmer `imit_bignet_ent02.pt` + lr=3e-5 a plusieurs seeds (priorite,
-  piste ci-dessus).
-- Si confirme : refaire aussi `lr=1e-4` depuis ce meme point de depart,
-  et tester PPO avec `CardNetBig` + `imit_bignet_ent02.pt`.
-- Si non confirme : revenir a `lr=3e-5` a plusieurs seeds avec l'ancien
-  `imit_bignet.pt` avant de trancher entre les deux lr.
-- Tester PPO avec `CardNetBig` (jamais fait, seulement REINFORCE
-  jusqu'ici).
+- Refaire `lr=1e-4` depuis `imit_bignet_ent02.pt` (au moins 1 seed) pour
+  voir si le lr compte encore une fois le bon point de depart utilise, ou
+  si `lr=3e-5` domine desormais clairement.
+- Tester PPO avec `CardNetBig` + `imit_bignet_ent02.pt` (jamais fait,
+  seulement REINFORCE jusqu'ici) -- etant donne PPO≈REINFORCE partout
+  ailleurs dans cette lignee, s'attendre a un gain similaire, mais a
+  verifier.
+- Essayer d'autres cibles d'entropie autour de 0.20 (ex. 0.15, 0.25) pour
+  voir si le point exact compte, ou si toute la zone "pas totalement
+  convergee" fonctionne pareil.
 - Puis passer a l'etape 2 du plan (tronc partage acteur/critic + critic
-  centralise, `coinche/remarques_rl.md` point 6).
+  centralise, `coinche/remarques_rl.md` point 6) -- avec ce nouveau point
+  de depart d'imitation desormais comme reference a battre.
