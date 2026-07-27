@@ -304,9 +304,70 @@ anterieures.
 
 Smoke-teste bout en bout (chargement depuis `imit_bignet_ent02.pt`, 200
 episodes d'entrainement, sauvegarde/rechargement, `eval_policy.py
---architecture shared`) -- aucune erreur. **Pas encore lance en
-conditions reelles.**
+--architecture shared`) -- aucune erreur.
 
-**A faire** : premier run complet (100k episodes, `lr=3e-5`, depuis
-`imit_bignet_ent02.pt`) pour comparer a la reference REINFORCE
-`CardNetBig` actuelle (24.42, std=1.05, n=3).
+### Premiers runs reels : interference value/policy a travers le tronc, puis correction
+
+Premier run complet (100k episodes, `lr=3e-5`, `epochs=8, value-coef=0.5`
+-- memes hyperparametres PPO que la reference `CardNet`) depuis
+`imit_bignet_ent02.pt` : **eval_avg(45000) = +12.58**, nettement sous la
+reference REINFORCE (24.42, n=3) et meme legerement sous le plateau
+`CardNet` simple (~15.1-15.2). Trajectoire d'entrainement clairement
+plus bruitee que d'habitude (`clip_frac` 5-6%, contre <2% partout
+ailleurs dans cette session) -- signe d'interference value/policy a
+travers le tronc partage, exactement le probleme historique qui avait
+fait abandonner l'architecture PPO d'origine (`ActorCriticNet`, avant
+que `policy_net`/`value_net` ne deviennent independants).
+
+Balayage exploratoire (seed20 pour tous, `lr=3e-5` fixe) pour corriger
+ca :
+
+| epochs | value_coef | eval_avg(45000) | clip_frac (fin de run) |
+|---|---|---|---|
+| 8 | 0.5 | +12.58 | 5.2% |
+| 4 | 0.5 | +20.53 | 1.9% |
+| 4 | 0.3 | +23.81 | 1.6% |
+| 4 | 0.1 | +24.42 | 1.0% |
+| **4** | **0.2** | **+27.80** | 2.2% |
+
+Les deux facteurs comptent : passer de `epochs=8` a `epochs=4` (a
+`value_coef` inchange) fait deja la moitie du chemin (12.58 -> 20.53,
+`clip_frac` revenu a une plage normale) -- avec un tronc partage, chaque
+passe met a jour la representation depuis les deux pertes, donc 8 passes
+semble sur-perturber le tronc. Baisser `value_coef` en plus ajoute un
+gain supplementaire, avec un optimum apparent autour de 0.2 (0.1 et 0.3
+donnent des resultats proches mais legerement inferieurs).
+
+### Confirmation a n=3 de la meilleure config (`epochs=4, value_coef=0.2`)
+
+| seed | eval_avg(45000) |
+|---|---|
+| 20 | +27.80 |
+| 21 | +22.09 |
+| 22 | +25.23 |
+
+Moyenne **25.04**, ecart-type **2.86** (n=3) -- a comparer a REINFORCE
+depuis le meme `imit_bignet_ent02.pt` (moyenne 24.42, ecart-type 1.05,
+n=3). **Les deux moyennes sont quasiment identiques** : le tronc partage
+egale la meilleure config connue, sans la depasser clairement, mais avec
+une variance entre seeds plus large (2.86 contre 1.05).
+
+**Conclusion prudente** : le mecanisme fonctionne -- contrairement aux 4
+tentatives precedentes sur le critic (toutes avec un `ValueNet`
+independant), ici le partage de tronc ne degrade pas la performance une
+fois les hyperparametres correctement recalibres pour cette architecture
+(moins d'epochs, `value_coef` plus bas) -- mais rien ne prouve encore un
+gain net par rapport a REINFORCE simple depuis le meme point de depart.
+La variance plus large (n=3) laisse la question ouverte : un 4e/5e seed
+pourrait clarifier si `25.04` est un vrai (petit) gain ou du bruit autour
+de `24.42`.
+
+**A faire si on veut poursuivre** :
+- Plus de seeds a `epochs=4, value_coef=0.2` pour trancher si le tronc
+  partage bat reellement REINFORCE ou l'egale seulement.
+- Essayer d'autres `value_coef` autour de 0.2 (ex. 0.15, 0.25) avec
+  plusieurs seeds, vu qu'un seul seed par point ne permet pas de
+  distinguer un vrai optimum du bruit.
+- Ajouter les taches auxiliaires (atouts/AS restants des 3 autres,
+  discussion initiale du plan) maintenant que le tronc partage seul
+  fonctionne au moins aussi bien que REINFORCE.
