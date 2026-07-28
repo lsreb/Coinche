@@ -54,6 +54,14 @@ def main():
     parser.add_argument('--value-coef', type=float, default=0.5)
     parser.add_argument('--entropy-coef', type=float, default=0.002)
     parser.add_argument('--entropy-decay', default='none')
+    parser.add_argument('--architecture', choices=['small', 'big'], default='small',
+                         help="Passe directement a train_ppo.py --architecture (meme choix/semantique) : "
+                              "'big' pour partir d'un checkpoint CardNetBig (ex. "
+                              "rl_experiments_v4/imit_bignet_ent02.pt) -- --init-load et tous les "
+                              "checkpoints de segments generes doivent alors etre de cette meme "
+                              "architecture. Limite a 'small'/'big' ici (pas 'shared'/'shared_aux') : "
+                              "train_ppo.py refuse un pool d'adversaires contenant un vrai checkpoint "
+                              "(au-dela de 'heuristic' seul) avec ces architectures, cf. train_ppo.py main().")
     parser.add_argument('--pfsp-refresh-every', type=int, default=1000)
     parser.add_argument('--pfsp-temperature', type=float, default=0.1)
     parser.add_argument('--pfsp-ema-beta', type=float, default=0.98)
@@ -107,6 +115,7 @@ def main():
             '--value-coef', str(args.value_coef),
             '--entropy-coef', str(args.entropy_coef),
             '--entropy-decay', args.entropy_decay,
+            '--architecture', args.architecture,
             '--eval-every', str(args.eval_every),
             '--eval-games', str(args.eval_games),
             '--checkpoint-every', str(args.checkpoint_every),
