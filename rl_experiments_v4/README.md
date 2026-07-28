@@ -338,29 +338,32 @@ semble sur-perturber le tronc. Baisser `value_coef` en plus ajoute un
 gain supplementaire, avec un optimum apparent autour de 0.2 (0.1 et 0.3
 donnent des resultats proches mais legerement inferieurs).
 
-### Confirmation a n=3 de la meilleure config (`epochs=4, value_coef=0.2`)
+### Confirmation a n=4 de la meilleure config (`epochs=4, value_coef=0.2`)
 
 | seed | eval_avg(45000) |
 |---|---|
 | 20 | +27.80 |
 | 21 | +22.09 |
 | 22 | +25.23 |
+| 23 | +23.28 |
 
-Moyenne **25.04**, ecart-type **2.86** (n=3) -- a comparer a REINFORCE
+Moyenne **24.60**, ecart-type **2.50** (n=4) -- a comparer a REINFORCE
 depuis le meme `imit_bignet_ent02.pt` (moyenne 24.42, ecart-type 1.05,
-n=3). **Les deux moyennes sont quasiment identiques** : le tronc partage
-egale la meilleure config connue, sans la depasser clairement, mais avec
-une variance entre seeds plus large (2.86 contre 1.05).
+n=3). **Les deux moyennes sont quasiment identiques** (ecart de 0.18
+point) : le tronc partage egale la meilleure config connue, sans la
+depasser, avec une variance entre seeds plus large (2.50 contre 1.05).
 
-**Conclusion prudente** : le mecanisme fonctionne -- contrairement aux 4
+**Conclusion** : le mecanisme fonctionne -- contrairement aux 4
 tentatives precedentes sur le critic (toutes avec un `ValueNet`
 independant), ici le partage de tronc ne degrade pas la performance une
 fois les hyperparametres correctement recalibres pour cette architecture
-(moins d'epochs, `value_coef` plus bas) -- mais rien ne prouve encore un
-gain net par rapport a REINFORCE simple depuis le meme point de depart.
-La variance plus large (n=3) laisse la question ouverte : un 4e/5e seed
-pourrait clarifier si `25.04` est un vrai (petit) gain ou du bruit autour
-de `24.42`.
+(moins d'epochs, `value_coef` plus bas) -- mais aucune preuve d'un gain
+net par rapport a REINFORCE simple depuis le meme point de depart, meme
+a n=4. Piste suivante (cf. discussion du 2026-07-27, `rl_experiments_v5/`) :
+le critic centralise a un raccourci (la branche info-centralisee) qui
+dilue son propre gradient sur le tronc partage -- une tache auxiliaire
+placee SEULEMENT sur le tronc (sans ce raccourci) pourrait avoir un effet
+plus fort, propre a tester separement.
 
 **A faire si on veut poursuivre** :
 - Plus de seeds a `epochs=4, value_coef=0.2` pour trancher si le tronc
