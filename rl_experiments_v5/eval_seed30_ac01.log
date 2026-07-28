@@ -1,0 +1,8 @@
+heuristic                                                eval_avg(45000)=  -0.51  win_rate= 49.8%
+rl_experiments_v5/exp_shared_aux_lr3e-5_epochs4_vc02_ac05_seed30/ppo_100000.pt  eval_avg(45000)= +15.84  win_rate= 53.3%
+rl_experiments_v5/exp_shared_aux_lr3e-5_epochs4_vc02_ac01_seed30/ppo_100000.pt  eval_avg(45000)= +19.64  win_rate= 54.1%
+
+Resume (memes 45000 donnes, fixees une fois, pour tous les checkpoints, seed=42) :
+  rl_experiments_v5/exp_shared_aux_lr3e-5_epochs4_vc02_ac01_seed30/ppo_100000.pt  eval_avg= +19.64  win_rate= 54.1%
+  rl_experiments_v5/exp_shared_aux_lr3e-5_epochs4_vc02_ac05_seed30/ppo_100000.pt  eval_avg= +15.84  win_rate= 53.3%
+  heuristic                                                eval_avg=  -0.51  win_rate= 49.8%
