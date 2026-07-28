@@ -21,17 +21,27 @@ Usage:
 import argparse
 
 from coinche.players import HeuristicPlayer, RLPlayer
+from coinche.rl_agent import CardNet, CardNetBig
 from eval_policy import generate_fixed_deals, evaluate_fixed
-from train_ppo import PPOPolicy, torch
+from train_ppo import PPOPolicy, SharedTrunkPPOPolicy, SharedTrunkAuxPPOPolicy, torch
 
 
-def load_spec(spec):
-    """None pour 'heuristic' (pas de policy a charger), sinon une PPOPolicy
+def load_spec(spec, architecture='small'):
+    """None pour 'heuristic' (pas de policy a charger), sinon une Policy
     chargee et mise en mode glouton -- chargee une seule fois par spec, reutilisee
-    pour tous les appariements qui l'impliquent."""
+    pour tous les appariements qui l'impliquent. `architecture` s'applique a
+    TOUS les specs non-heuristic de cet appel (meme convention que
+    eval_policy.py --architecture : melanger plusieurs architectures dans un
+    seul round-robin necessiterait un flag par spec, pas encore supporte)."""
     if spec == 'heuristic':
         return None
-    policy = PPOPolicy()
+    if architecture == 'shared_aux':
+        policy = SharedTrunkAuxPPOPolicy()
+    elif architecture == 'shared':
+        policy = SharedTrunkPPOPolicy()
+    else:
+        policy_net_cls = CardNetBig if architecture == 'big' else CardNet
+        policy = PPOPolicy(policy_net_cls=policy_net_cls)
     policy.load(spec)
     policy.record = False
     return policy
@@ -61,13 +71,19 @@ def main():
     parser.add_argument('--games', type=int, default=3000, help='Nombre de donnes par appariement.')
     parser.add_argument('--seed', type=int, default=42,
                          help='Seed pour generer les donnes fixes (une fois, partagees par tous les appariements).')
+    parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux'], default='small',
+                         help="'small' = CardNet (defaut), 'big' = CardNetBig, 'shared' = "
+                              "SharedTrunkActorCritic, 'shared_aux' = SharedTrunkActorCriticAux -- "
+                              "s'applique a TOUS les specs non-heuristic de cet appel ; melanger "
+                              "plusieurs architectures dans un seul round-robin necessite un appel "
+                              "separe par groupe (memes --games/--seed => memes donnes).")
     args = parser.parse_args()
 
     if torch is None:
         raise SystemExit("torch est requis pour evaluer une NeuralPolicy (voir requirements.txt).")
 
     deals = generate_fixed_deals(args.games, args.seed)
-    policies = {spec: load_spec(spec) for spec in args.specs}
+    policies = {spec: load_spec(spec, architecture=args.architecture) for spec in args.specs}
 
     results = {}
     for a in args.specs:
