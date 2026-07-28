@@ -319,7 +319,7 @@ if torch is not None:
         precedentes sur le critic (toutes avec un ValueNet independant, donc
         sans effet possible sur l'acteur par construction)."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
-                     entropy_coef=0.01, epochs=4, minibatch_size=64):
+                     entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False):
             self.device = device
             self.net = SharedTrunkActorCritic().to(device)
             self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
@@ -328,6 +328,13 @@ if torch is not None:
             self.entropy_coef = entropy_coef
             self.epochs = epochs
             self.minibatch_size = minibatch_size
+            # Cf. PPOPolicy.no_critic_baseline (meme semantique) : avantage = retour
+            # centre/normalise sur le batch, la tete critic n'est ni appelee ni
+            # entrainee dans update_batch -- teste si la baseline du critic apporte
+            # quoi que ce soit ICI (jamais teste sur le tronc partage jusqu'ici,
+            # contrairement a l'ancien critic independant, ablate a 3 reprises sans
+            # effet mesurable).
+            self.no_critic_baseline = no_critic_baseline
             self.record = True
             self._traj = []
             self._episodes = []
@@ -390,7 +397,7 @@ if torch is not None:
             old_values = torch.stack(old_values)
             masks = torch.stack(masks)
             returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
-            advantages = returns - old_values
+            advantages = returns if self.no_critic_baseline else returns - old_values
             return_scale = returns.std() + 1e-6
             if advantages.numel() > 1:
                 advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
@@ -412,9 +419,13 @@ if torch is not None:
                     surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * adv
                     policy_loss = -torch.min(surr1, surr2).mean()
                     entropy = dist.entropy().mean()
-                    values = self.net.forward_critic(full_states[mb])
-                    value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
-                    loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
+                    if self.no_critic_baseline:
+                        value_loss = torch.tensor(0.0)
+                        loss = policy_loss - self.entropy_coef * entropy
+                    else:
+                        values = self.net.forward_critic(full_states[mb])
+                        value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
+                        loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
                     clip_frac = ((ratio - 1.0).abs() > self.clip_eps).float().mean()
 
                     self.optimizer.zero_grad()
@@ -646,8 +657,9 @@ def main():
                               "remarques_rl.md point 6) : tronc partage acteur/critic. 'shared_aux' = "
                               "SharedTrunkActorCriticAux (rl_experiments_v5) : idem + tache auxiliaire "
                               "(nombre d'atouts restants des 3 autres, cf. --aux-coef). "
-                              "--no-critic-baseline et --ablate-points-so-far non supportes avec 'shared'/"
-                              "'shared_aux'. --load accepte alors soit un checkpoint natif de cette "
+                              "--ablate-points-so-far non supporte avec 'shared'/'shared_aux' ; "
+                              "--no-critic-baseline supporte avec 'shared' seulement (pas encore "
+                              "'shared_aux'). --load accepte alors soit un checkpoint natif de cette "
                               "architecture, soit un checkpoint CardNetBig (ex. imit_bignet_ent02.pt, les "
                               "parties critic/auxiliaire demarrent alors aleatoires).")
     parser.add_argument('--opponent', default='heuristic',
@@ -681,9 +693,12 @@ def main():
         torch.manual_seed(args.seed)
 
     if args.architecture in ('shared', 'shared_aux'):
-        if args.no_critic_baseline or args.ablate_points_so_far:
-            raise SystemExit("--no-critic-baseline et --ablate-points-so-far ne sont pas "
-                              "supportes avec --architecture shared/shared_aux.")
+        if args.ablate_points_so_far:
+            raise SystemExit("--ablate-points-so-far n'est pas supporte avec "
+                              "--architecture shared/shared_aux.")
+        if args.no_critic_baseline and args.architecture == 'shared_aux':
+            raise SystemExit("--no-critic-baseline n'est pas encore supporte avec "
+                              "--architecture shared_aux (seulement 'shared').")
         # NeuralPolicy (train.py, utilisee par make_opponent_factory pour charger un
         # adversaire fige du pool) appelle net(x) -> forward(x) -- SharedTrunkActorCritic
         # definit maintenant forward() comme alias de forward_actor() a cet effet.
@@ -702,7 +717,8 @@ def main():
         else:
             policy = SharedTrunkPPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
                                            entropy_coef=args.entropy_coef, epochs=args.epochs,
-                                           minibatch_size=args.minibatch_size)
+                                           minibatch_size=args.minibatch_size,
+                                           no_critic_baseline=args.no_critic_baseline)
     else:
         policy_net_cls = CardNetBig if args.architecture == 'big' else CardNet
         policy = PPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
