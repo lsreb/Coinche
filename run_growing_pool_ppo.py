@@ -19,13 +19,16 @@ validee sur 3+ seeds contre heuristic seul dans rl_experiments_v3/README.md
 --batch-episodes) pour que la seule variable qui change soit "pool
 grandissant" vs "heuristic seul", comme pour la version REINFORCE.
 
-`--load-value` : contrairement a REINFORCE (un seul reseau), PPO a un critic
-separe (ValueNet). Le tout premier segment part de `--init-load` (imit.pt,
-policy seulement, pas de critic pre-entraine -- critic demarre aleatoire).
-Les segments suivants rechargent a la fois policy ET critic depuis le
-checkpoint du segment precedent (meme fichier passe a --load et --load-value,
-cf. train_ppo.py PPOPolicy.save()/load() : un checkpoint PPO natif est un
-dict {'policy':, 'value':}).
+`--load-value` : pour `--architecture small/big`, contrairement a REINFORCE
+(un seul reseau), PPO a un critic separe (ValueNet). Le tout premier segment
+part de `--init-load` (imit.pt, policy seulement, pas de critic pre-entraine
+-- critic demarre aleatoire). Les segments suivants rechargent a la fois
+policy ET critic depuis le checkpoint du segment precedent (meme fichier
+passe a --load et --load-value, cf. train_ppo.py PPOPolicy.save()/load() :
+un checkpoint PPO natif est un dict {'policy':, 'value':}). Pour
+`--architecture shared/shared_aux`, un seul reseau (tronc+acteur+critic[+aux])
+est charge via --load seul -- --load-value n'est jamais passe (train_ppo.py
+le refuse pour ces architectures).
 
 Usage:
     python run_growing_pool_ppo.py --total-episodes 300000 --segment-episodes 50000 --seed-start 20
@@ -54,14 +57,16 @@ def main():
     parser.add_argument('--value-coef', type=float, default=0.5)
     parser.add_argument('--entropy-coef', type=float, default=0.002)
     parser.add_argument('--entropy-decay', default='none')
-    parser.add_argument('--architecture', choices=['small', 'big'], default='small',
+    parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux'], default='small',
                          help="Passe directement a train_ppo.py --architecture (meme choix/semantique) : "
                               "'big' pour partir d'un checkpoint CardNetBig (ex. "
-                              "rl_experiments_v4/imit_bignet_ent02.pt) -- --init-load et tous les "
-                              "checkpoints de segments generes doivent alors etre de cette meme "
-                              "architecture. Limite a 'small'/'big' ici (pas 'shared'/'shared_aux') : "
-                              "train_ppo.py refuse un pool d'adversaires contenant un vrai checkpoint "
-                              "(au-dela de 'heuristic' seul) avec ces architectures, cf. train_ppo.py main().")
+                              "rl_experiments_v4/imit_bignet_ent02.pt), 'shared'/'shared_aux' pour un "
+                              "tronc partage acteur/critic (ex. depuis un checkpoint deja converti via "
+                              "load_actor_from_cardnetbig) -- --init-load et tous les checkpoints de "
+                              "segments generes doivent alors etre de cette meme architecture.")
+    parser.add_argument('--aux-coef', type=float, default=0.5,
+                         help="Poids de la perte auxiliaire -- uniquement avec --architecture shared_aux "
+                              "(passe tel quel a train_ppo.py --aux-coef).")
     parser.add_argument('--pfsp-refresh-every', type=int, default=1000)
     parser.add_argument('--pfsp-temperature', type=float, default=0.1)
     parser.add_argument('--pfsp-ema-beta', type=float, default=0.98)
@@ -116,6 +121,10 @@ def main():
             '--entropy-coef', str(args.entropy_coef),
             '--entropy-decay', args.entropy_decay,
             '--architecture', args.architecture,
+        ]
+        if args.architecture == 'shared_aux':
+            cmd += ['--aux-coef', str(args.aux_coef)]
+        cmd += [
             '--eval-every', str(args.eval_every),
             '--eval-games', str(args.eval_games),
             '--checkpoint-every', str(args.checkpoint_every),
@@ -123,7 +132,9 @@ def main():
             '--save', ckpt_path,
             '--seed', str(seed),
         ]
-        if seg > 1:
+        if seg > 1 and args.architecture not in ('shared', 'shared_aux'):
+            # --load-value n'a pas de sens pour shared/shared_aux (un seul reseau
+            # charge par --load, pas de value_net separee, cf. train_ppo.py main()).
             cmd += ['--load-value', load_path]
         log_path = os.path.join(args.out_dir, f'seg_{global_end}.log')
         print(f'=== Segment {seg}/{n_segments} : episodes {offset + 1}-{global_end} '

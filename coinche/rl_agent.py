@@ -476,6 +476,13 @@ if torch is not None:
             h = F.gelu(self.fc3_actor(self.ln3_actor(h)))
             return self.fc4_actor(self.ln4_actor(h))
 
+        def forward(self, x):
+            """Alias de forward_actor -- pour que NeuralPolicy (train.py, appelle
+            net(x) directement) puisse charger ce checkpoint comme adversaire
+            fige glouton dans un pool grandissant (cf. make_opponent_factory) :
+            seule la tete acteur compte pour un adversaire, jamais mis a jour."""
+            return self.forward_actor(x)
+
         def forward_critic(self, x_full):
             x = x_full[..., :self._state_dim]
             other = x_full[..., self._state_dim:]

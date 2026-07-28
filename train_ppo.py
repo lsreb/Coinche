@@ -685,16 +685,9 @@ def main():
             raise SystemExit("--no-critic-baseline et --ablate-points-so-far ne sont pas "
                               "supportes avec --architecture shared/shared_aux.")
         # NeuralPolicy (train.py, utilisee par make_opponent_factory pour charger un
-        # adversaire fige du pool) appelle net(x) -> forward(x), que
-        # SharedTrunkActorCritic(Aux) ne definit pas (seulement forward_actor/
-        # forward_critic/forward_aux) -- un pool contenant un vrai checkpoint (pas
-        # seulement 'heuristic') planterait donc a l'usage, pas au chargement.
-        opponent_tokens = [t.strip() for t in args.opponent.split(',') if t.strip()]
-        if any(t != 'heuristic' for t in opponent_tokens):
-            raise SystemExit("--opponent avec un checkpoint (au-dela de 'heuristic' seul) n'est pas "
-                              "encore supporte avec --architecture shared/shared_aux : NeuralPolicy ne "
-                              "sait pas charger ces architectures comme adversaire fige du pool.")
-        net_cls = CardNet  # jamais instanciee (pool 'heuristic' seul, cf. ci-dessus)
+        # adversaire fige du pool) appelle net(x) -> forward(x) -- SharedTrunkActorCritic
+        # definit maintenant forward() comme alias de forward_actor() a cet effet.
+        net_cls = SharedTrunkActorCriticAux if args.architecture == 'shared_aux' else SharedTrunkActorCritic
     else:
         net_cls = CardNetBig if args.architecture == 'big' else CardNet
     opponent_pool = build_opponent_pool(args.opponent, net_cls=net_cls)
