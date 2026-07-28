@@ -374,3 +374,37 @@ plus fort, propre a tester separement.
 - Ajouter les taches auxiliaires (atouts/AS restants des 3 autres,
   discussion initiale du plan) maintenant que le tronc partage seul
   fonctionne au moins aussi bien que REINFORCE.
+
+## Pool grandissant depuis `imit_bignet_ent02.pt` : meilleur resultat de la session (seed40, n=1)
+
+Apres que la piste critic/auxiliaire (tronc partage, puis tache auxiliaire
+dans `rl_experiments_v5/`) n'ait rien donne de net au-dela de REINFORCE
+seul, retour a l'autre resultat structurel confirme cette session : le
+pool grandissant en self-play PFSP (`rl_experiments_v3/README.md`, n=3
+REINFORCE + n=2 PPO, jamais teste avec `CardNetBig`/l'imitation a entropie
+cible). Les deux gains n'avaient jamais ete empiles.
+
+`run_growing_pool.py --architecture big --init-load imit_bignet_ent02.pt
+--lr 3e-5 --total-episodes 300000 --segment-episodes 50000 --seed-start 40`
+(6 segments, `rl_experiments_v4/exp_growing_pool_bignet/`). Corrige au
+passage un bug latent dans `train.py` (`make_opponent_factory`/
+`build_opponent_pool` instanciaient toujours `NeuralPolicy(net_cls=CardNet)`
+pour un adversaire fige du pool, jamais un probleme tant que le pool ne
+contenait que des checkpoints `CardNet` -- `load_state_dict` aurait echoue
+des le segment 2 avec un pool en `CardNetBig`). Tous les 6 segments
+tournes proprement (18.5 a 35 min chacun, legere hausse avec la taille du
+pool ; PFSP pioche bien parmi tous les membres du pool a des win_rate
+sains 0.49-0.60, aucun signe de collapse).
+
+**eval_avg(45000) = +31.70**, win_rate=56.3% -- au-dessus de la reference
+REINFORCE fixe depuis le meme point de depart (+25.04 pour ce seed
+precis, moyenne 24.42/n=3) et du tronc partage (24.60, n=4). **Meilleur
+resultat obtenu dans toute cette session de RL.**
+
+**Un seul seed pour l'instant** -- l'ecart (~6-7 points au-dessus des
+meilleures references) depasse la variance inter-seeds habituelle
+(std 1.05 a 2.50 selon l'architecture), donc c'est prometteur, mais pas
+encore confirme. **A faire avant de conclure** : au moins 2 seeds de plus
+(`--seed-start 41` et `42` par exemple, memes hyperparametres) pour
+confirmer que le gain tient, meme rigueur que partout ailleurs dans cette
+session.

@@ -89,7 +89,7 @@ def main():
         seg_ckpt_dir = os.path.join(args.out_dir, f'seg_{global_end}_checkpoints')
 
         cmd = [
-            sys.executable, 'train.py',
+            sys.executable, '-u', 'train.py',
             '--load', load_path,
             '--opponent', opponent,
             '--pfsp',

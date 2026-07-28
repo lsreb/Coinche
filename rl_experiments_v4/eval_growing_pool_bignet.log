@@ -1,0 +1,8 @@
+heuristic                                                eval_avg(45000)=  -0.51  win_rate= 49.8%
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt  eval_avg(45000)= +25.04  win_rate= 54.9%
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  eval_avg(45000)= +31.70  win_rate= 56.3%
+
+Resume (memes 45000 donnes, fixees une fois, pour tous les checkpoints, seed=42) :
+  rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  eval_avg= +31.70  win_rate= 56.3%
+  rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt  eval_avg= +25.04  win_rate= 54.9%
+  heuristic                                                eval_avg=  -0.51  win_rate= 49.8%
