@@ -60,7 +60,8 @@ import torch.nn.functional as F
 
 from coinche.rl_agent import (
     STATE_DIM, FULL_STATE_DIM, CardNet, CardNetBig, SharedTrunkActorCritic,
-    encode_state, encode_full_state, _canonical_slots, _slot_index, torch,
+    SharedTrunkActorCriticAux, encode_state, encode_full_state, other_trump_counts,
+    _canonical_slots, _slot_index, torch,
 )
 from train import (
     build_opponent_pool, PFSPSampler, run_episode, counterfactual_reward,
@@ -447,6 +448,164 @@ if torch is not None:
             else:
                 raise ValueError(f"Format de checkpoint non reconnu pour SharedTrunkPPOPolicy : {path}")
 
+    class SharedTrunkAuxPPOPolicy(SharedTrunkPPOPolicy):
+        """SharedTrunkPPOPolicy + tache auxiliaire (rl_experiments_v5,
+        discussion du 2026-07-27) : SharedTrunkActorCriticAux predit en plus
+        le nombre d'atouts restants des 3 autres sieges, depuis le tronc
+        partage SEUL (cf. docstring de SharedTrunkActorCriticAux dans
+        rl_agent.py pour le raisonnement complet -- volontairement PAS depuis
+        la branche info-centralisee du critic, pour eviter que le reseau ne
+        "triche" en lisant la reponse directement dans cette branche plutot
+        que d'avoir a l'encoder dans le tronc partage avec l'acteur).
+
+        Nouvel hyperparametre `aux_coef` (poids de cette perte dans la loss
+        totale) -- la perte auxiliaire est normalisee par son propre
+        ecart-type sur le batch courant (meme logique que `return_scale`
+        pour `value_loss`), sans quoi `aux_coef` n'aurait pas de sens
+        interpretable (echelle des comptes d'atouts, 0 a 8, tres differente
+        de celle de l'avantage normalise ou de l'entropie).
+
+        A SA/TA, le "slot canonique 0" (cf. other_trump_counts) ne
+        correspond pas a un vrai atout (aucun a SA, les 4 couleurs a
+        egalite a TA) -- ces decisions sont exclues de la perte auxiliaire
+        (masque `aux_valid`, discussion du 2026-07-27), sans affecter
+        policy_loss/value_loss qui continuent de s'entrainer normalement
+        dessus.
+
+        `update_batch` retourne un 5-tuple (policy_loss, value_loss,
+        aux_loss, entropy, clip_frac) au lieu du 4-tuple de la classe
+        parente -- gere explicitement par train_ppo.py `main()`."""
+        def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
+                     aux_coef=0.5, entropy_coef=0.01, epochs=4, minibatch_size=64):
+            self.device = device
+            self.net = SharedTrunkActorCriticAux().to(device)
+            self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
+            self.clip_eps = clip_eps
+            self.value_coef = value_coef
+            self.aux_coef = aux_coef
+            self.entropy_coef = entropy_coef
+            self.epochs = epochs
+            self.minibatch_size = minibatch_size
+            self.record = True
+            self._traj = []
+            self._episodes = []
+
+        def choose_card(self, player, legal, leader, trick, trump):
+            x = torch.tensor(encode_state(player, trick, trump), dtype=torch.float32, device=self.device)
+            logits = self.net.forward_actor(x)
+            suits, orders = _canonical_slots(trump)
+            mask = torch.full((32,), float('-inf'), device=self.device)
+            legal_idx = [_slot_index(c.suit, c.rank, suits, orders) for c in legal]
+            mask[legal_idx] = 0.0
+            masked_logits = logits + mask
+
+            if self.record:
+                x_full = torch.tensor(encode_full_state(player, trick, trump),
+                                       dtype=torch.float32, device=self.device)
+                value = self.net.forward_critic(x_full)
+                # Cible de la tache auxiliaire : info privilegiee (mains completes),
+                # calculee ici (contexte player/trump disponible), pas au moment
+                # de update_batch (states seuls, plus de contexte de partie).
+                aux_target = torch.tensor(other_trump_counts(player, trump),
+                                           dtype=torch.float32, device=self.device)
+                # A SA/TA, le "slot canonique 0" ne correspond pas a un vrai atout
+                # (aucun a SA, les 4 couleurs a egalite a TA, cf. discussion du
+                # 2026-07-27) -- la cible n'a alors aucun sens strategique, donc
+                # ces decisions sont exclues de la perte auxiliaire (mais pas de
+                # policy_loss/value_loss, qui continuent de s'entrainer normalement
+                # sur SA/TA comme sur les contrats couleur).
+                aux_valid = trump not in ('SA', 'TA')
+                dist = torch.distributions.Categorical(logits=masked_logits)
+                action_idx = dist.sample()
+                self._traj.append((x.detach(), x_full.detach(), aux_target, aux_valid,
+                                    int(action_idx.item()),
+                                    dist.log_prob(action_idx).detach(), value.detach(),
+                                    mask.detach()))
+            else:
+                action_idx = torch.argmax(masked_logits)
+
+            slot, rank_pos = divmod(int(action_idx.item()), 8)
+            chosen_suit, chosen_rank = suits[slot], orders[slot][rank_pos]
+            return next(c for c in legal if c.suit == chosen_suit and c.rank == chosen_rank)
+
+        def update_batch(self):
+            if not self._episodes:
+                return None
+            states, full_states, aux_targets, aux_valids = [], [], [], []
+            actions, old_log_probs, old_values, masks, returns = [], [], [], [], []
+            for traj, reward in self._episodes:
+                for x, x_full, aux_target, aux_valid, action_idx, old_lp, old_v, mask in traj:
+                    states.append(x)
+                    full_states.append(x_full)
+                    aux_targets.append(aux_target)
+                    aux_valids.append(aux_valid)
+                    actions.append(action_idx)
+                    old_log_probs.append(old_lp)
+                    old_values.append(old_v)
+                    masks.append(mask)
+                    returns.append(reward)
+            self._episodes = []
+
+            states = torch.stack(states)
+            full_states = torch.stack(full_states)
+            aux_targets = torch.stack(aux_targets)
+            aux_valids = torch.tensor(aux_valids, dtype=torch.bool, device=self.device)
+            actions = torch.tensor(actions, dtype=torch.long, device=self.device)
+            old_log_probs = torch.stack(old_log_probs)
+            old_values = torch.stack(old_values)
+            masks = torch.stack(masks)
+            returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
+            advantages = returns - old_values
+            return_scale = returns.std() + 1e-6
+            # Normalisation calculee seulement sur les decisions valides (contrat
+            # couleur) -- exclut les cibles SA/TA denuees de sens, cf. choose_card.
+            aux_scale = (aux_targets[aux_valids].std() + 1e-6) if aux_valids.any() else torch.tensor(1.0)
+            if advantages.numel() > 1:
+                advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
+
+            n = states.shape[0]
+            order = list(range(n))
+            total_policy_loss = total_value_loss = total_aux_loss = total_entropy = total_clip_frac = 0.0
+            n_updates = 0
+            for _ in range(self.epochs):
+                random.shuffle(order)
+                for start in range(0, n, self.minibatch_size):
+                    mb = torch.tensor(order[start:start + self.minibatch_size], dtype=torch.long, device=self.device)
+                    logits = self.net.forward_actor(states[mb])
+                    dist = torch.distributions.Categorical(logits=logits + masks[mb])
+                    new_log_probs = dist.log_prob(actions[mb])
+                    ratio = torch.exp(new_log_probs - old_log_probs[mb])
+                    adv = advantages[mb]
+                    surr1 = ratio * adv
+                    surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * adv
+                    policy_loss = -torch.min(surr1, surr2).mean()
+                    entropy = dist.entropy().mean()
+                    values = self.net.forward_critic(full_states[mb])
+                    value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
+                    mb_valid = aux_valids[mb]
+                    if mb_valid.any():
+                        aux_pred = self.net.forward_aux(states[mb][mb_valid])
+                        aux_loss = F.mse_loss(aux_pred / aux_scale, aux_targets[mb][mb_valid] / aux_scale)
+                    else:
+                        aux_loss = torch.tensor(0.0, device=self.device)
+                    loss = (policy_loss + self.value_coef * value_loss + self.aux_coef * aux_loss
+                            - self.entropy_coef * entropy)
+                    clip_frac = ((ratio - 1.0).abs() > self.clip_eps).float().mean()
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.optimizer.step()
+
+                    total_policy_loss += policy_loss.item()
+                    total_value_loss += value_loss.item()
+                    total_aux_loss += aux_loss.item()
+                    total_entropy += entropy.item()
+                    total_clip_frac += clip_frac.item()
+                    n_updates += 1
+
+            return (total_policy_loss / n_updates, total_value_loss / n_updates,
+                    total_aux_loss / n_updates, total_entropy / n_updates, total_clip_frac / n_updates)
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -458,6 +617,9 @@ def main():
     parser.add_argument('--clip-eps', type=float, default=0.2, help='Largeur du clip du ratio PPO.')
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--value-coef', type=float, default=0.5, help='Poids de la perte de valeur (MSE).')
+    parser.add_argument('--aux-coef', type=float, default=0.5,
+                         help="Poids de la perte auxiliaire (MSE, normalisee) -- uniquement avec "
+                              "--architecture shared_aux.")
     parser.add_argument('--entropy-coef', type=float, default=0.01, help="Poids du bonus d'entropie.")
     parser.add_argument('--entropy-decay', choices=['none', 'invsqrt', 'inv'], default='none',
                          help="Decroissance de --entropy-coef au fil des episodes (meme schema que "
@@ -478,14 +640,16 @@ def main():
                               "(acteur et critic), pour isoler son effet sur la performance. --load doit "
                               "pointer vers un imit.pt genere avec le meme flag (pretrain.py "
                               "--ablate-points-so-far).")
-    parser.add_argument('--architecture', choices=['small', 'big', 'shared'], default='small',
+    parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux'], default='small',
                          help="'small' = CardNet+ValueNet independants (defaut). 'big' = CardNetBig+ValueNet "
                               "independants. 'shared' = SharedTrunkActorCritic (etape 2 du plan, "
-                              "remarques_rl.md point 6) : tronc partage acteur/critic, --no-critic-baseline "
-                              "et --ablate-points-so-far non supportes avec cette architecture. --load "
-                              "accepte alors soit un checkpoint SharedTrunkPPOPolicy natif, soit un "
-                              "checkpoint CardNetBig (ex. imit_bignet_ent02.pt, la partie critic demarre "
-                              "alors aleatoire).")
+                              "remarques_rl.md point 6) : tronc partage acteur/critic. 'shared_aux' = "
+                              "SharedTrunkActorCriticAux (rl_experiments_v5) : idem + tache auxiliaire "
+                              "(nombre d'atouts restants des 3 autres, cf. --aux-coef). "
+                              "--no-critic-baseline et --ablate-points-so-far non supportes avec 'shared'/"
+                              "'shared_aux'. --load accepte alors soit un checkpoint natif de cette "
+                              "architecture, soit un checkpoint CardNetBig (ex. imit_bignet_ent02.pt, les "
+                              "parties critic/auxiliaire demarrent alors aleatoires).")
     parser.add_argument('--opponent', default='heuristic',
                          help="Adversaire(s) aux sieges 1/3, separes par des virgules : meme semantique que "
                               "train.py --opponent (heuristic et/ou chemins de poids, pool si plusieurs).")
@@ -520,13 +684,18 @@ def main():
     sampler = PFSPSampler(opponent_pool, refresh_every=args.pfsp_refresh_every,
                            temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
 
-    if args.architecture == 'shared':
+    if args.architecture in ('shared', 'shared_aux'):
         if args.no_critic_baseline or args.ablate_points_so_far:
             raise SystemExit("--no-critic-baseline et --ablate-points-so-far ne sont pas "
-                              "supportes avec --architecture shared.")
-        policy = SharedTrunkPPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
-                                       entropy_coef=args.entropy_coef, epochs=args.epochs,
-                                       minibatch_size=args.minibatch_size)
+                              "supportes avec --architecture shared/shared_aux.")
+        if args.architecture == 'shared_aux':
+            policy = SharedTrunkAuxPPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
+                                              aux_coef=args.aux_coef, entropy_coef=args.entropy_coef,
+                                              epochs=args.epochs, minibatch_size=args.minibatch_size)
+        else:
+            policy = SharedTrunkPPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
+                                           entropy_coef=args.entropy_coef, epochs=args.epochs,
+                                           minibatch_size=args.minibatch_size)
     else:
         policy_net_cls = CardNetBig if args.architecture == 'big' else CardNet
         policy = PPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
@@ -537,8 +706,8 @@ def main():
         policy.load(args.load)
         print('poids charges depuis', args.load)
     if args.load_value:
-        if args.architecture == 'shared':
-            raise SystemExit("--load-value n'a pas de sens avec --architecture shared "
+        if args.architecture in ('shared', 'shared_aux'):
+            raise SystemExit("--load-value n'a pas de sens avec --architecture shared/shared_aux "
                               "(un seul reseau, pas de value_net separee).")
         policy.load_value(args.load_value)
         print('poids de value_net charges depuis', args.load_value)
@@ -585,9 +754,16 @@ def main():
             avg_adv = sum(adv_window) / len(adv_window)
             avg_eval, win_rate = evaluate(policy, args.eval_games, start_dealer=global_ep)
             elapsed = time.perf_counter() - start
-            stats_str = (f"  policy_loss={last_stats[0]:+.4f}  value_loss={last_stats[1]:.4f}  "
-                         f"entropy={last_stats[2]:.3f}  clip_frac={100*last_stats[3]:4.1f}%"
-                         ) if last_stats is not None else ""
+            if last_stats is None:
+                stats_str = ""
+            elif len(last_stats) == 5:
+                # SharedTrunkAuxPPOPolicy : (policy_loss, value_loss, aux_loss, entropy, clip_frac).
+                stats_str = (f"  policy_loss={last_stats[0]:+.4f}  value_loss={last_stats[1]:.4f}  "
+                             f"aux_loss={last_stats[2]:.4f}  entropy={last_stats[3]:.3f}  "
+                             f"clip_frac={100*last_stats[4]:4.1f}%")
+            else:
+                stats_str = (f"  policy_loss={last_stats[0]:+.4f}  value_loss={last_stats[1]:.4f}  "
+                             f"entropy={last_stats[2]:.3f}  clip_frac={100*last_stats[3]:4.1f}%")
             print(f"episode {global_ep:6d}  train_avg={avg_train:+7.1f}  adv_avg={avg_adv:+7.1f}  "
                   f"eval_avg({args.eval_games})={avg_eval:+7.1f}  win_rate={100*win_rate:5.1f}%  "
                   f"entropy_coef={policy.entropy_coef:.4f}{stats_str}  ({elapsed:.1f}s)")

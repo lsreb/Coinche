@@ -323,6 +323,32 @@ def _other_hands_vec(player, suits, orders) -> list:
     return v
 
 
+def _other_trump_counts(player, suits) -> list:
+    """Nombre de cartes actuellement en main dans le slot canonique atout
+    (slot 0, cf. _canonical_slots -- atout reel pour un contrat couleur ;
+    notion degeneree mais bien definie a SA/TA ou tous les slots suivent
+    la meme convention), pour chacun des 3 autres sieges -- meme ordre
+    relatif que _other_hands_vec. Cible d'entrainement de la tache
+    auxiliaire de SharedTrunkActorCriticAux, jamais visible par l'acteur
+    en jeu reel (info privilegiee, disponible seulement en simulation)."""
+    engine = getattr(player, 'engine', None)
+    seat = getattr(player, 'seat', 0)
+    trump_suit = suits[0]
+    counts = []
+    for offset in (1, 2, 3):
+        other_seat = (seat + offset) % 4
+        other_hand = engine.players[other_seat].hand if engine is not None else []
+        counts.append(float(sum(1 for c in other_hand if c.suit == trump_suit)))
+    return counts
+
+
+def other_trump_counts(player, trump) -> list:
+    """Cf. _other_trump_counts -- calcule suits/orders lui-meme (meme
+    convention d'appel que encode_full_state)."""
+    suits, _orders = _canonical_slots(trump)
+    return _other_trump_counts(player, suits)
+
+
 def encode_full_state(player, trick, trump, ablate_points=False) -> list:
     """Etat CENTRALISE pour le critic : encode_state() (ce qu'un joueur reel
     voit) + les mains actuelles des 3 autres sieges -- information
@@ -483,6 +509,42 @@ if torch is not None:
             for src_key, dst_key in remap.items():
                 own_state[dst_key] = state_dict[src_key]
             self.load_state_dict(own_state)
+
+    class SharedTrunkActorCriticAux(SharedTrunkActorCritic):
+        """SharedTrunkActorCritic + une 3e tete auxiliaire (rl_experiments_v5,
+        discussion du 2026-07-27) : predit le nombre d'atouts restants chez
+        chacun des 3 autres sieges (cf. other_trump_counts), depuis le tronc
+        partage SEUL (h, sortie de _trunk) -- PAS depuis la branche info-
+        centralisee du critic (fc_central/c, cf. forward_critic).
+
+        Ce choix est deliberer : si la tete auxiliaire voyait aussi c (comme
+        le fait deja la tete critic), le reseau pourrait "tricher" -- lire
+        la reponse quasi directement dans c sans avoir besoin d'encoder quoi
+        que ce soit dans h, ce qui viderait la tache auxiliaire de son
+        interet (forcer le tronc PARTAGE avec l'acteur a representer cette
+        info). En ne voyant que h, la seule facon de reduire cette perte est
+        d'ameliorer h lui-meme -- son gradient influence donc directement ce
+        que l'acteur utilise aussi, contrairement au critic centralise (qui
+        a ce raccourci via c, et pousse donc plus faiblement sur le tronc).
+
+        Une seule couche cachee (meme profondeur que la branche info-
+        centralisee du critic, meme raisonnement : role plus structurel que
+        strategique)."""
+        def __init__(self, in_dim=STATE_DIM, other_dim=FULL_STATE_DIM - STATE_DIM,
+                     trunk_hidden=128, actor_hidden=64, central_hidden=32, critic_hidden=64,
+                     aux_hidden=32, n_aux=3):
+            super().__init__(in_dim=in_dim, other_dim=other_dim, trunk_hidden=trunk_hidden,
+                              actor_hidden=actor_hidden, central_hidden=central_hidden,
+                              critic_hidden=critic_hidden)
+            self.ln_aux = nn.LayerNorm(trunk_hidden)
+            self.fc_aux = nn.Linear(trunk_hidden, aux_hidden)
+            self.ln_aux2 = nn.LayerNorm(aux_hidden)
+            self.fc_aux_out = nn.Linear(aux_hidden, n_aux)
+
+        def forward_aux(self, x):
+            h = self._trunk(x)
+            h = F.gelu(self.fc_aux(self.ln_aux(h)))
+            return self.fc_aux_out(self.ln_aux2(h))
 
     class NeuralPolicy:
         """Policy entraînable par REINFORCE. `record=True` (par défaut) échantillonne
