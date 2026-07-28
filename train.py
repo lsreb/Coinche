@@ -40,28 +40,31 @@ def _default_opponent(name):
     return HeuristicPlayer(name)
 
 
-def make_opponent_factory(token):
+def make_opponent_factory(token, net_cls=CardNet):
     """Fabrique de joueur pour un token d'adversaire du pool (--opponent) :
     'heuristic', ou un chemin vers des poids NeuralPolicy sauvegardes
     (self-play contre une copie figee, jeu glouton, jamais mise a jour).
+    `net_cls` doit correspondre a l'architecture du checkpoint charge (ex.
+    CardNetBig pour un pool grandissant en --architecture big, cf.
+    run_growing_pool.py) -- sinon load_state_dict echoue (cles differentes).
     Au niveau module (pas dans main()) pour etre reutilisable par
     train_ppo.py sans dupliquer cette logique."""
     if token == 'heuristic':
         return _default_opponent
-    frozen = NeuralPolicy()
+    frozen = NeuralPolicy(net_cls=net_cls)
     frozen.load(token)
     frozen.record = False  # glouton, jamais mis a jour (pas d'appel a .update())
     print('adversaire fige charge depuis', token)
     return lambda name, frozen=frozen: RLPlayer(name, frozen)
 
 
-def build_opponent_pool(opponent_arg):
+def build_opponent_pool(opponent_arg, net_cls=CardNet):
     """Parse --opponent ('token1,token2,...') en une liste [(token, factory)].
     Leve une erreur si vide."""
     tokens = [t.strip() for t in opponent_arg.split(',') if t.strip()]
     if not tokens:
         raise SystemExit("--opponent doit contenir au moins une valeur.")
-    return [(t, make_opponent_factory(t)) for t in tokens]
+    return [(t, make_opponent_factory(t, net_cls=net_cls)) for t in tokens]
 
 
 class PFSPSampler:
@@ -249,11 +252,11 @@ def main():
         random.seed(args.seed)
         torch.manual_seed(args.seed)
 
-    opponent_pool = build_opponent_pool(args.opponent)
+    net_cls = CardNetBig if args.architecture == 'big' else CardNet
+    opponent_pool = build_opponent_pool(args.opponent, net_cls=net_cls)
     sampler = PFSPSampler(opponent_pool, refresh_every=args.pfsp_refresh_every,
                            temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
 
-    net_cls = CardNetBig if args.architecture == 'big' else CardNet
     policy = NeuralPolicy(lr=args.lr, entropy_beta=args.entropy_beta, net_cls=net_cls)
     if args.load:
         policy.load(args.load)

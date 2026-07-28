@@ -46,6 +46,13 @@ def main():
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--entropy-beta', type=float, default=0.002)
     parser.add_argument('--entropy-decay', default='none')
+    parser.add_argument('--architecture', choices=['small', 'big'], default='small',
+                         help="Passe directement a train.py --architecture (meme choix/semantique) : "
+                              "'big' pour partir d'un checkpoint CardNetBig (ex. "
+                              "rl_experiments_v4/imit_bignet_ent02.pt) -- --init-load et tous les "
+                              "checkpoints de segments generes doivent alors etre de cette meme "
+                              "architecture (le pool d'adversaires en depend aussi, cf. "
+                              "train.py build_opponent_pool).")
     parser.add_argument('--pfsp-refresh-every', type=int, default=1000)
     parser.add_argument('--pfsp-temperature', type=float, default=0.1)
     parser.add_argument('--pfsp-ema-beta', type=float, default=0.98)
@@ -94,6 +101,7 @@ def main():
             '--lr', str(args.lr),
             '--entropy-beta', str(args.entropy_beta),
             '--entropy-decay', args.entropy_decay,
+            '--architecture', args.architecture,
             '--eval-every', str(args.eval_every),
             '--eval-games', str(args.eval_games),
             '--checkpoint-every', str(args.checkpoint_every),
