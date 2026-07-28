@@ -408,3 +408,44 @@ encore confirme. **A faire avant de conclure** : au moins 2 seeds de plus
 (`--seed-start 41` et `42` par exemple, memes hyperparametres) pour
 confirmer que le gain tient, meme rigueur que partout ailleurs dans cette
 session.
+
+### Round-robin (`eval_matchup.py`, n=10000) : le gain se confirme, pas juste un artefact de `eval_avg`
+
+Meme demarche que la validation du pool grandissant en v3 (cf.
+`rl_experiments_v3/README.md`) : `eval_avg` contre heuristic seul ne
+mesure que l'exploitation d'un adversaire fixe, pas la polyvalence.
+Ajoute `--architecture` a `eval_matchup.py` (ne supportait jusqu'ici que
+`PPOPolicy()` en dur/`CardNet` petit -- meme convention que
+`eval_policy.py`) pour pouvoir l'utiliser sur des checkpoints
+`CardNetBig`.
+
+4 specs, 6 appariements (n=10000, seed=42) : `heuristic`, la reference
+"vanille" de cette lignee (`exp_reinforce_bignet_ent02_lr3e-5_seed20/
+reinforce_100000.pt`, +25.04 en `eval_avg`), le checkpoint precoce du
+pool (`seg_50000`) et le checkpoint final (`seg_300000`).
+
+Force moyenne (corrigee du biais de siege, `skill(X,Y) = ((X vs Y) -
+(Y vs X))/2`, meme methode qu'en v3) :
+
+| | force moyenne |
+|---|---|
+| **pool bignet, seg_300000 (final)** | **+18.97** |
+| vanille (REINFORCE bignet simple) | +6.43 |
+| pool bignet, seg_50000 (precoce) | +0.31 |
+| heuristic | -25.71 |
+
+**Meme pattern qu'en v3, sans exception, et avec un ecart plus marque** :
+le checkpoint final du pool bat nettement la vanille en tete-a-tete
+direct (+15.88 / -6.38, soit +11.13 une fois corrige du biais de siege)
+et bat tres largement le checkpoint precoce (+20.08 / -9.52, soit +14.8
+corrige) ; le precoce lui-meme ne se distingue pas clairement de la
+vanille (+0.31 vs +6.43, dans le meme ordre de grandeur que la variance
+observee en v3 entre config proches). Le gain de +31.70 en `eval_avg`
+n'est donc pas (uniquement) un artefact de cette metrique bruitee -- il
+se confirme en tete-a-tete direct, comme pour le pool grandissant "petit
+CardNet" de v3.
+
+**Toujours n=1** : reste a confirmer sur 2 seeds supplementaires (comme
+pour v3, ou le pattern a fini par se confirmer identiquement sur 3 seeds
+REINFORCE + 2 PPO) avant de traiter ce resultat comme definitivement
+etabli.
