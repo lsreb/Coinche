@@ -1,9 +1,10 @@
 import argparse
 import json
 import os
+import random
 
 from coinche.game import GameEngine
-from coinche.players import create_player, RLPlayer, HumanPlayer
+from coinche.players import create_player, RLPlayer, HumanPlayer, SEAT_LABELS
 from coinche.rl_agent import SimplePolicy
 from render_history import generate_page
 
@@ -65,7 +66,8 @@ def main():
                               "siege S (2e apres N) est humain.")
     parser.add_argument('--hands-file', default=None,
                          help='JSON avec 4 mains, ex ["AP","10P",...]. Ignore en cas de redonne (tout le monde passe).')
-    parser.add_argument('--dealer', type=int, default=0, help='Siege du donneur (0-3).')
+    parser.add_argument('--dealer', type=int, default=None,
+                         help='Siege du donneur (0-3). Par defaut tire au hasard a chaque lancement.')
     parser.add_argument('--out', default='game_interactive.json', help="Chemin de sauvegarde de l'historique JSON.")
     parser.add_argument('--no-render', action='store_true', help='Ne pas generer la page HTML de relecture.')
     parser.add_argument('--render-out', default='game_interactive_viewer.html')
@@ -86,7 +88,9 @@ def main():
         advisor_spec = bot_spec if args.advisor == 'auto' else args.advisor
         players[human_idx].advisor = build_one_player(advisor_spec, 'IA')
 
-    engine = GameEngine(players, dealer=args.dealer)
+    dealer = args.dealer if args.dealer is not None else random.randint(0, 3)
+    print(f"Donneur : {SEAT_LABELS[dealer]}  (premier à parler : {SEAT_LABELS[(dealer + 1) % 4]})")
+    engine = GameEngine(players, dealer=dealer)
     engine.deal(hands)
     engine.run_auction()
     team_points, contract = engine.play()
