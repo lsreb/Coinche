@@ -1,0 +1,19 @@
+heuristic                                               vs rl_experiments_v4/exp_shared_lr3e-5_epochs4_vc02_seed20/ppo_100000.pt  avg= -25.25  win_rate= 44.9%
+heuristic                                               vs rl_experiments_v4/exp_growing_pool_shared/seg_50000.pt   avg= -14.55  win_rate= 47.1%
+heuristic                                               vs rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt  avg= -19.59  win_rate= 46.0%
+rl_experiments_v4/exp_shared_lr3e-5_epochs4_vc02_seed20/ppo_100000.pt vs heuristic                                                avg= +30.93  win_rate= 56.2%
+rl_experiments_v4/exp_shared_lr3e-5_epochs4_vc02_seed20/ppo_100000.pt vs rl_experiments_v4/exp_growing_pool_shared/seg_50000.pt   avg=  +9.13  win_rate= 51.9%
+rl_experiments_v4/exp_shared_lr3e-5_epochs4_vc02_seed20/ppo_100000.pt vs rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt  avg=  -4.72  win_rate= 49.1%
+rl_experiments_v4/exp_growing_pool_shared/seg_50000.pt  vs heuristic                                                avg= +24.97  win_rate= 55.0%
+rl_experiments_v4/exp_growing_pool_shared/seg_50000.pt  vs rl_experiments_v4/exp_shared_lr3e-5_epochs4_vc02_seed20/ppo_100000.pt  avg=  -3.43  win_rate= 49.3%
+rl_experiments_v4/exp_growing_pool_shared/seg_50000.pt  vs rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt  avg= -11.11  win_rate= 47.8%
+rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt vs heuristic                                                avg= +30.76  win_rate= 56.3%
+rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt vs rl_experiments_v4/exp_shared_lr3e-5_epochs4_vc02_seed20/ppo_100000.pt  avg= +10.00  win_rate= 52.0%
+rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt vs rl_experiments_v4/exp_growing_pool_shared/seg_50000.pt   avg= +16.51  win_rate= 53.3%
+
+Resume round-robin (memes 10000 donnes fixees pour tous les appariements, seed=42) :
+                                                                    heuristic  seed20/ppo_100000.pt  _shared/seg_50000.pt  shared/seg_300000.pt
+heuristic                                                                  --                -25.25                -14.55                -19.59
+rl_experiments_v4/exp_shared_lr3e-5_epochs4_vc02_seed20/ppo_100000.pt                +30.93                    --                 +9.13                 -4.72
+rl_experiments_v4/exp_growing_pool_shared/seg_50000.pt                 +24.97                 -3.43                    --                -11.11
+rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt                +30.76                +10.00                +16.51                    --

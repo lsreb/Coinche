@@ -575,26 +575,42 @@ fonctionne en conditions reelles, pas juste au smoke-test).
 | **Pool, final (seg_300000)** | **+25.21** |
 | Tronc partage simple, moyenne n=4 | 24.60 (std 2.50, range 22.09-27.80) |
 
-**Lecture honnete** : compare au seed20 precis (27.80), le pool final
-semble regresser -- mais 27.80 est encore une fois le plus haut des 4
-seeds connus (meme piege que pour les 2 lectures precedentes de cette
-session). Compare a la distribution complete (22.09-27.80, moyenne
-24.60), +25.21 tombe pile dedans, essentiellement a la moyenne :
-**aucun gain net demontrable par rapport au tronc partage sans pool.**
+**Premiere lecture (via `eval_avg` seul)** : compare au seed20 precis
+(27.80), le pool final semble regresser -- mais 27.80 est encore une
+fois le plus haut des 4 seeds connus (meme piege que pour les 2 lectures
+precedentes de cette session). Compare a la distribution complete
+(22.09-27.80, moyenne 24.60), +25.21 tombe pile dedans, essentiellement
+a la moyenne : `eval_avg` seul ne montre **aucun gain net** par rapport
+au tronc partage sans pool.
 
-**Contraste net avec le run bignet+REINFORCE** : la-bas, le pool
-apportait un gain clair par rapport a sa propre reference sans pool
-(24.42 -> 31.70, ~+7 points). Ici, rien de tel (24.60 -> 25.21,
-difference negligeable). Le pool grandissant ne semble donc pas se
-combiner aussi favorablement avec le tronc partage/PPO qu'avec REINFORCE
-simple -- a nuancer : la progression precoce->final (19.85 -> 25.21)
-reste bien reelle et dans le sens attendu, coherent avec le pattern
-etabli en v3 (le pool ameliore la polyvalence au fil de l'entrainement).
+### Round-robin (`eval_matchup.py`, n=10000) : le gain existe bel et bien, invisible dans `eval_avg` seul
 
-**Un seul seed, et `eval_avg` seul reste une metrique bruitee** (lecon
-de v3 : la vraie polyvalence gagnee par le pool peut etre invisible ou
-trompeuse face a un seul adversaire fixe). Un round-robin
-(`eval_matchup.py --architecture shared`, meme demarche que pour le run
-bignet) serait necessaire pour trancher definitivement si le pool
-apporte quand meme un gain de polyvalence non visible ici -- pas encore
-fait, piste naturelle si on veut confirmer/infirmer ce resultat neutre.
+Meme demarche que pour le run bignet+REINFORCE : 4 specs (heuristic,
+tronc partage simple seed20, pool precoce `seg_50000`, pool final
+`seg_300000`), n=10000, seed=42. Force moyenne (corrigee du biais de
+siege) :
+
+| | force moyenne |
+|---|---|
+| **Pool, final (seg_300000)** | **+15.45** |
+| Tronc partage simple (sans pool) | +9.00 |
+| Pool, precoce (seg_50000) | -0.11 |
+| heuristic | -24.34 |
+
+**Meme pattern exceptionless qu'en v3 et que pour le run bignet** : final
+> simple sans pool > precoce > heuristic. Le pool final bat la version
+simple en tete-a-tete direct (+10.00 / -4.72, soit +7.36 corrige) et
+ecrase le pool precoce (+16.51 / -11.11, soit +13.81 corrige) ; la
+version simple bat elle-meme le precoce (+9.13 / -3.43, soit +6.28
+corrige).
+
+**Ca contredit la premiere lecture base sur `eval_avg` seul** : il y a
+bel et bien un gain reel de polyvalence (+6.45 points de force corrigee
+entre pool-final et simple), du meme ordre de grandeur que le gain vu
+pour le pool bignet -- simplement invisible face a heuristic seul, la
+lecon exacte de v3 (`eval_avg` contre un seul adversaire fixe ne mesure
+que l'exploitation de cet adversaire, pas la polyvalence reelle). Le
+pool grandissant apporte donc bien un gain avec le tronc partage/PPO
+aussi, contrairement a ce que suggerait la premiere lecture -- **un seul
+seed pour l'instant**, a confirmer sur plus de seeds avant de conclure
+definitivement, meme rigueur que partout ailleurs dans cette session.
