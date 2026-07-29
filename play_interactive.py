@@ -15,15 +15,38 @@ def load_hands(path):
     return data
 
 
+def _load_rl_policy(spec):
+    """spec = 'architecture:chemin' (ex. 'big:rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt'),
+    meme convention que eval_matchup.py. Charge un checkpoint REINFORCE (NeuralPolicy) en mode
+    glouton (record=False), pas la policy aleatoire par defaut de create_player('rl')."""
+    from coinche.rl_agent import torch, CardNet, CardNetBig, NeuralPolicy
+    if torch is None:
+        raise SystemExit("torch est requis pour charger un checkpoint RL (voir requirements.txt).")
+    if ':' not in spec:
+        raise SystemExit(f"Format attendu 'architecture:chemin' pour un bot rl: (recu {spec!r}).")
+    arch, path = spec.split(':', 1)
+    architectures = {'small': CardNet, 'big': CardNetBig}
+    net_cls = architectures.get(arch)
+    if net_cls is None:
+        raise SystemExit(f"Architecture RL inconnue {arch!r} (options: {sorted(architectures)}).")
+    policy = NeuralPolicy(net_cls=net_cls)
+    policy.load(path)
+    policy.record = False
+    return policy
+
+
 def build_players(strategies):
     parts = strategies.split(',')
-    policy = SimplePolicy()
+    default_policy = SimplePolicy()
     players = []
     for i in range(4):
         strat = parts[i] if i < len(parts) else 'heuristic'
-        p = create_player(strat, f'P{i}')
-        if isinstance(p, RLPlayer) and getattr(p, 'policy', None) is None:
-            p.policy = policy
+        if strat.startswith('rl:'):
+            p = RLPlayer(f'P{i}', _load_rl_policy(strat[len('rl:'):]))
+        else:
+            p = create_player(strat, f'P{i}')
+            if isinstance(p, RLPlayer) and getattr(p, 'policy', None) is None:
+                p.policy = default_policy
         players.append(p)
     return players
 
@@ -32,8 +55,10 @@ def main():
     parser = argparse.ArgumentParser(description='Joue une donne de Coinche en interactif contre des bots.')
     parser.add_argument('--strategies', default='heuristic,heuristic,human,heuristic',
                          help="Strategies des sieges 0-3 (N,W,S,E), separees par des virgules. "
-                              "Options : random, heuristic, rl, human. Par defaut, seul le siege S (2e apres N) "
-                              "est humain.")
+                              "Options : random, heuristic, human, rl (policy aleatoire), ou "
+                              "rl:architecture:chemin (ex. rl:big:rl_experiments_v4/exp_growing_pool_bignet/"
+                              "seg_300000.pt) pour charger un vrai checkpoint entraine. Par defaut, seul le "
+                              "siege S (2e apres N) est humain.")
     parser.add_argument('--hands-file', default=None,
                          help='JSON avec 4 mains, ex ["AP","10P",...]. Ignore en cas de redonne (tout le monde passe).')
     parser.add_argument('--dealer', type=int, default=0, help='Siege du donneur (0-3).')
