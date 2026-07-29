@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 
 from coinche.game import GameEngine
 from coinche.players import create_player, RLPlayer, HumanPlayer
@@ -35,20 +36,23 @@ def _load_rl_policy(spec):
     return policy
 
 
+def build_one_player(strat, name):
+    if strat.startswith('rl:'):
+        return RLPlayer(name, _load_rl_policy(strat[len('rl:'):]))
+    p = create_player(strat, name)
+    if isinstance(p, RLPlayer) and getattr(p, 'policy', None) is None:
+        p.policy = SimplePolicy()
+    return p
+
+
 def build_players(strategies):
     parts = strategies.split(',')
-    default_policy = SimplePolicy()
-    players = []
-    for i in range(4):
-        strat = parts[i] if i < len(parts) else 'heuristic'
-        if strat.startswith('rl:'):
-            p = RLPlayer(f'P{i}', _load_rl_policy(strat[len('rl:'):]))
-        else:
-            p = create_player(strat, f'P{i}')
-            if isinstance(p, RLPlayer) and getattr(p, 'policy', None) is None:
-                p.policy = default_policy
-        players.append(p)
-    return players
+    return [build_one_player(parts[i] if i < len(parts) else 'heuristic', f'P{i}') for i in range(4)]
+
+
+def _with_suffix(path, suffix):
+    root, ext = os.path.splitext(path)
+    return f"{root}{suffix}{ext}"
 
 
 def main():
@@ -65,10 +69,23 @@ def main():
     parser.add_argument('--out', default='game_interactive.json', help="Chemin de sauvegarde de l'historique JSON.")
     parser.add_argument('--no-render', action='store_true', help='Ne pas generer la page HTML de relecture.')
     parser.add_argument('--render-out', default='game_interactive_viewer.html')
+    parser.add_argument('--advisor', default='auto',
+                         help="Bot dont la suggestion s'affiche en temps reel a chaque decision humaine "
+                              "(meme format que --strategies : heuristic, random, rl:architecture:chemin). "
+                              "'auto' (defaut) reprend la strategie du premier siege bot. 'none' desactive.")
     args = parser.parse_args()
+
+    strat_parts = args.strategies.split(',')
+    strat_parts += ['heuristic'] * (4 - len(strat_parts))
+    human_idx = next((i for i, s in enumerate(strat_parts) if s == 'human'), None)
+    bot_spec = next((s for i, s in enumerate(strat_parts) if i != human_idx and s != 'human'), 'heuristic')
 
     hands = load_hands(args.hands_file) if args.hands_file else None
     players = build_players(args.strategies)
+    if human_idx is not None and args.advisor != 'none':
+        advisor_spec = bot_spec if args.advisor == 'auto' else args.advisor
+        players[human_idx].advisor = build_one_player(advisor_spec, 'IA')
+
     engine = GameEngine(players, dealer=args.dealer)
     engine.deal(hands)
     engine.run_auction()
@@ -90,6 +107,35 @@ def main():
     if not args.no_render:
         generate_page(engine.history, args.render_out)
         print('Relecture générée dans', args.render_out)
+
+    if human_idx is not None:
+        answer = input(f"\nGénérer la même donne + contrat jouée par 4x {bot_spec!r} ? (y/N) : ").strip().lower()
+        if answer in ('y', 'yes', 'o', 'oui'):
+            replay_players = [build_one_player(bot_spec, f'B{i}') for i in range(4)]
+            replay_engine = GameEngine(replay_players, dealer=engine.dealer)
+            replay_engine.deal(engine.history['deal_hands'])
+            replay_engine.contract = engine.contract
+            replay_engine.taker_idx = engine.taker_idx
+            replay_engine.history['contract'] = {
+                'level': engine.contract.level,
+                'trump': engine.contract.trump,
+                'taker': engine.taker_idx,
+                'capot': engine.contract.capot,
+                'coinched': engine.contract.coinched,
+            }
+            replay_points, _ = replay_engine.play()
+            print(f"Points équipe preneuse (bots) : {replay_points[taker_team]}  |  "
+                  f"Points défense (bots) : {replay_points[1 - taker_team]}")
+
+            replay_out = _with_suffix(args.out, '_botreplay')
+            with open(replay_out, 'w') as f:
+                json.dump(replay_engine.history, f, indent=2)
+            print('Historique du replay sauvegardé dans', replay_out)
+
+            if not args.no_render:
+                replay_render_out = _with_suffix(args.render_out, '_botreplay')
+                generate_page(replay_engine.history, replay_render_out)
+                print('Relecture du replay générée dans', replay_render_out)
 
 
 if __name__ == '__main__':

@@ -1011,6 +1011,7 @@ class HumanPlayer(Player):
         super().__init__(name)
         self._deal_count = 0
         self._shown_tricks = 0
+        self.advisor: Optional[Player] = None
 
     def deal(self, hand: List[Card]):
         super().deal(hand)
@@ -1018,6 +1019,30 @@ class HumanPlayer(Player):
         self._shown_tricks = 0
         if self._deal_count > 1:
             print("\n(Tout le monde a passé — nouvelle donne.)")
+        if self.advisor is not None:
+            self.advisor.deal(list(hand))
+
+    def _advisor_hint(self, kind: str, current_best=None, leader=None, trick=None, trump=None):
+        """Interroge self.advisor (un Player independant, jamais dans engine.players)
+        sur ce qu'il aurait choisi a la place du joueur humain, sans toucher a la
+        vraie main : advisor.hand est resynchronise sur une COPIE de self.hand a
+        chaque appel (advisor.play_card() la mute en retirant la carte choisie),
+        advisor.initial_hand reste celui fixe au deal() (necessaire aux heuristiques
+        de defausse basees sur la main de depart)."""
+        if self.advisor is None:
+            return
+        self.advisor.seat = self.seat
+        self.advisor.engine = self.engine
+        self.advisor.hand = list(self.hand)
+        if kind == 'bid':
+            suggestion = self.advisor.bid(current_best)
+            label = 'passe' if suggestion is None else _fmt_bid(self.engine._normalize_bid(suggestion))
+            verb = 'annoncé'
+        else:
+            suggestion = self.advisor.play_card(self.seat, leader, trick, trump)
+            label = _fmt_card(suggestion)
+            verb = 'joué'
+        print(f"[IA] Elle aurait {verb} : {label}")
 
     def _label(self, seat: int) -> str:
         return SEAT_LABELS.get(seat, str(seat))
@@ -1067,6 +1092,7 @@ class HumanPlayer(Player):
             print(f"Contrat actuel : {_fmt_bid(current_best)} ({bidder}, {who})")
         else:
             print("Contrat actuel : aucun")
+        self._advisor_hint('bid', current_best=current_best)
 
         while True:
             choice = input("[p] passer   [b] surenchérir   [c] coincher > ").strip().lower()
@@ -1113,6 +1139,7 @@ class HumanPlayer(Player):
         print(f"Ta main : {_fmt_hand(self.hand, trump)}")
         if trick:
             print(f"Couleur demandée : {_trump_label(trick[0][1].suit)} (par {self._label(trick[0][0])})")
+        self._advisor_hint('play', leader=leader, trick=trick, trump=trump)
 
         legal = engine.legal_moves(seat, self.hand, trick, trump)
         while True:
