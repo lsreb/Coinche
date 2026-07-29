@@ -39,7 +39,7 @@ import random
 
 from coinche.game import GameEngine
 from coinche.players import HeuristicPlayer, RLPlayer
-from coinche.rl_agent import CardNet, CardNetBig
+from coinche.rl_agent import CardNet, CardNetBig, SharedTrunkActorCriticDeep
 from train_ppo import PPOPolicy, SharedTrunkPPOPolicy, SharedTrunkAuxPPOPolicy, torch
 
 
@@ -110,10 +110,13 @@ def main():
                               "--ablate-points-so-far) a TOUS les checkpoints de cet appel -- pour comparer un "
                               "groupe ablate a un autre, lancer eval_policy.py une fois par groupe (memes "
                               "--games/--seed => memes donnes generees, cf. generate_fixed_deals).")
-    parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux'], default='small',
+    parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux', 'shared_deep'],
+                         default='small',
                          help="'small' = CardNet (defaut), 'big' = CardNetBig, 'shared' = "
                               "SharedTrunkActorCritic, 'shared_aux' = SharedTrunkActorCriticAux "
-                              "(remarques_rl.md point 6, rl_experiments_v5) -- s'applique a TOUS les "
+                              "(remarques_rl.md point 6, rl_experiments_v5), 'shared_deep' = "
+                              "SharedTrunkActorCriticDeep (tronc 3 couches, tete acteur 1 couche, "
+                              "discussion du 2026-07-28) -- s'applique a TOUS les "
                               "checkpoints non-heuristic de cet appel ; melanger plusieurs architectures "
                               "necessite un appel separe par groupe (meme --games/--seed => memes donnes).")
     args = parser.parse_args()
@@ -131,6 +134,8 @@ def main():
         else:
             if args.architecture == 'shared_aux':
                 policy = SharedTrunkAuxPPOPolicy()
+            elif args.architecture == 'shared_deep':
+                policy = SharedTrunkPPOPolicy(net_cls=SharedTrunkActorCriticDeep)
             elif args.architecture == 'shared':
                 policy = SharedTrunkPPOPolicy()
             else:

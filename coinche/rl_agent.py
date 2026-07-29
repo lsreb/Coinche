@@ -553,6 +553,103 @@ if torch is not None:
             h = F.gelu(self.fc_aux(self.ln_aux(h)))
             return self.fc_aux_out(self.ln_aux2(h))
 
+    class SharedTrunkActorCriticDeep(nn.Module):
+        """Rebalancement tronc/tetes de SharedTrunkActorCritic (design exact de
+        l'utilisateur, discussion du 2026-07-28) : tronc plus profond (3 couches
+        au lieu de 2), tete acteur plus courte (1 couche au lieu de 2). Classe
+        independante (pas une sous-classe de SharedTrunkActorCritic -- structure
+        du tronc/de la tete critic trop differente pour une heritage propre),
+        meme convention que CardNetBig/CardNet : jamais modifie les classes
+        existantes en place.
+
+        Tronc partage (ln1/fc1/ln2/fc2/ln3/fc3, 167->128->128->64) : couvre
+        EXACTEMENT les 3 premieres couches de CardNetBig (memes noms/formes,
+        contrairement a SharedTrunkActorCritic qui ne reprenait que les 2
+        premieres) -- meme raisonnement, pouvoir repartir d'un imit_bignet*.pt
+        deja entraine (cf. load_actor_from_cardnetbig).
+
+        Tete acteur (ln4_actor/fc4_actor, 64->32) : une seule couche, la
+        derniere de CardNetBig renommee -- toute la profondeur de la 2e moitie
+        de CardNetBig est donc passee au tronc partage plutot qu'a l'acteur.
+
+        Tete critic : branche info centralisee (ln_central/fc_central, 96->64
+        -- desormais egale a la dimension de sortie du tronc, un partage plus
+        equilibre que les 128 vs 32 de SharedTrunkActorCritic) concatenee a la
+        sortie du tronc (64+64=128) avant 1 couche cachee privee
+        (ln3_critic/fc3_critic, 128->32) puis la sortie scalaire
+        (ln4_critic/fc4_critic, 32->1)."""
+        def __init__(self, in_dim=STATE_DIM, other_dim=FULL_STATE_DIM - STATE_DIM,
+                     trunk_hidden1=128, trunk_hidden2=128, trunk_hidden3=64,
+                     central_hidden=64, critic_hidden=32):
+            super().__init__()
+            # Tronc partage (3 couches, identique en forme/noms aux 3 premieres de CardNetBig).
+            self.ln1 = nn.LayerNorm(in_dim)
+            self.fc1 = nn.Linear(in_dim, trunk_hidden1)
+            self.ln2 = nn.LayerNorm(trunk_hidden1)
+            self.fc2 = nn.Linear(trunk_hidden1, trunk_hidden2)
+            self.ln3 = nn.LayerNorm(trunk_hidden2)
+            self.fc3 = nn.Linear(trunk_hidden2, trunk_hidden3)
+
+            # Tete acteur (1 seule couche, la derniere de CardNetBig).
+            self.ln4_actor = nn.LayerNorm(trunk_hidden3)
+            self.fc4_actor = nn.Linear(trunk_hidden3, 32)
+
+            # Branche info centralisee (critic seul) + tete critic.
+            self.ln_central = nn.LayerNorm(other_dim)
+            self.fc_central = nn.Linear(other_dim, central_hidden)
+            self.ln3_critic = nn.LayerNorm(trunk_hidden3 + central_hidden)
+            self.fc3_critic = nn.Linear(trunk_hidden3 + central_hidden, critic_hidden)
+            self.ln4_critic = nn.LayerNorm(critic_hidden)
+            self.fc4_critic = nn.Linear(critic_hidden, 1)
+
+            self._state_dim = in_dim
+
+        def _trunk(self, x):
+            x = F.gelu(self.fc1(self.ln1(x)))
+            x = F.gelu(self.fc2(self.ln2(x)))
+            x = F.gelu(self.fc3(self.ln3(x)))
+            return x
+
+        def forward_actor(self, x):
+            h = self._trunk(x)
+            return self.fc4_actor(self.ln4_actor(h))
+
+        def forward(self, x):
+            """Alias de forward_actor -- cf. SharedTrunkActorCritic.forward
+            (meme raison : chargement comme adversaire fige du pool via
+            NeuralPolicy)."""
+            return self.forward_actor(x)
+
+        def forward_critic(self, x_full):
+            x = x_full[..., :self._state_dim]
+            other = x_full[..., self._state_dim:]
+            h = self._trunk(x)
+            c = F.gelu(self.fc_central(self.ln_central(other)))
+            h = torch.cat([h, c], dim=-1)
+            h = F.gelu(self.fc3_critic(self.ln3_critic(h)))
+            return self.fc4_critic(self.ln4_critic(h)).squeeze(-1)
+
+        def load_actor_from_cardnetbig(self, path, map_location='cpu'):
+            """Reprend le tronc (3 couches) + la tete acteur (derniere couche)
+            depuis un checkpoint CardNetBig deja entraine -- ici les 4 couches
+            de CardNetBig couvrent EXACTEMENT tronc+tete (167->128->128->64
+            puis 64->32), donc un remap plus direct que
+            SharedTrunkActorCritic.load_actor_from_cardnetbig (seule la
+            derniere couche est renommee, fc1/ln1/fc2/ln2/fc3/ln3 sont deja
+            aux memes noms)."""
+            obj = torch.load(path, map_location=map_location)
+            state_dict = obj['policy'] if isinstance(obj, dict) and 'policy' in obj else obj
+            own_state = self.state_dict()
+            for key in ('fc1.weight', 'fc1.bias', 'ln1.weight', 'ln1.bias',
+                        'fc2.weight', 'fc2.bias', 'ln2.weight', 'ln2.bias',
+                        'fc3.weight', 'fc3.bias', 'ln3.weight', 'ln3.bias'):
+                own_state[key] = state_dict[key]
+            own_state['fc4_actor.weight'] = state_dict['fc4.weight']
+            own_state['fc4_actor.bias'] = state_dict['fc4.bias']
+            own_state['ln4_actor.weight'] = state_dict['ln4.weight']
+            own_state['ln4_actor.bias'] = state_dict['ln4.bias']
+            self.load_state_dict(own_state)
+
     class NeuralPolicy:
         """Policy entraînable par REINFORCE. `record=True` (par défaut) échantillonne
         et mémorise le log-prob de chaque décision ; `record=False` (évaluation)

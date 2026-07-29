@@ -60,8 +60,8 @@ import torch.nn.functional as F
 
 from coinche.rl_agent import (
     STATE_DIM, FULL_STATE_DIM, CardNet, CardNetBig, SharedTrunkActorCritic,
-    SharedTrunkActorCriticAux, encode_state, encode_full_state, other_trump_counts,
-    _canonical_slots, _slot_index, torch,
+    SharedTrunkActorCriticAux, SharedTrunkActorCriticDeep, encode_state, encode_full_state,
+    other_trump_counts, _canonical_slots, _slot_index, torch,
 )
 from train import (
     build_opponent_pool, PFSPSampler, run_episode, counterfactual_reward,
@@ -319,9 +319,10 @@ if torch is not None:
         precedentes sur le critic (toutes avec un ValueNet independant, donc
         sans effet possible sur l'acteur par construction)."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
-                     entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False):
+                     entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False,
+                     net_cls=SharedTrunkActorCritic):
             self.device = device
-            self.net = SharedTrunkActorCritic().to(device)
+            self.net = net_cls().to(device)
             self.optimizer = torch.optim.Adam(self.net.parameters(), lr=lr)
             self.clip_eps = clip_eps
             self.value_coef = value_coef
@@ -447,12 +448,15 @@ if torch is not None:
             torch.save(self.net.state_dict(), path)
 
         def load(self, path):
-            """Charge soit un checkpoint SharedTrunkPPOPolicy natif (cle
-            'fc3_actor.weight'), soit un checkpoint CardNetBig (cle 'fc3.weight',
-            ex. imit_bignet_ent02.pt) via SharedTrunkActorCritic.load_actor_from_cardnetbig
-            -- la partie critic reste alors initialisee aleatoirement."""
+            """Charge soit un checkpoint natif de cette architecture (au moins
+            une cle '*_actor.weight' -- SharedTrunkActorCritic a fc3_actor ET
+            fc4_actor, SharedTrunkActorCriticDeep a seulement fc4_actor, d'ou
+            ce test generique plutot qu'un nom de cle fige), soit un checkpoint
+            CardNetBig brut (ex. imit_bignet_ent02.pt, aucune cle '*_actor')
+            via net_cls.load_actor_from_cardnetbig -- la partie critic reste
+            alors initialisee aleatoirement."""
             obj = torch.load(path, map_location=self.device)
-            if 'fc3_actor.weight' in obj:
+            if any(k.endswith('_actor.weight') for k in obj):
                 self.net.load_state_dict(obj)
             elif 'fc3.weight' in obj:
                 self.net.load_actor_from_cardnetbig(path, map_location=self.device)
@@ -651,14 +655,20 @@ def main():
                               "(acteur et critic), pour isoler son effet sur la performance. --load doit "
                               "pointer vers un imit.pt genere avec le meme flag (pretrain.py "
                               "--ablate-points-so-far).")
-    parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux'], default='small',
+    parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux', 'shared_deep'],
+                         default='small',
                          help="'small' = CardNet+ValueNet independants (defaut). 'big' = CardNetBig+ValueNet "
                               "independants. 'shared' = SharedTrunkActorCritic (etape 2 du plan, "
-                              "remarques_rl.md point 6) : tronc partage acteur/critic. 'shared_aux' = "
-                              "SharedTrunkActorCriticAux (rl_experiments_v5) : idem + tache auxiliaire "
-                              "(nombre d'atouts restants des 3 autres, cf. --aux-coef). "
-                              "--ablate-points-so-far non supporte avec 'shared'/'shared_aux' ; "
-                              "--no-critic-baseline supporte avec 'shared' seulement (pas encore "
+                              "remarques_rl.md point 6) : tronc partage acteur/critic (167->128->128, "
+                              "tete acteur 128->64->32). 'shared_aux' = SharedTrunkActorCriticAux "
+                              "(rl_experiments_v5) : idem + tache auxiliaire (nombre d'atouts restants "
+                              "des 3 autres, cf. --aux-coef). 'shared_deep' = SharedTrunkActorCriticDeep "
+                              "(discussion du 2026-07-28) : rebalancement tronc/tete, tronc plus profond "
+                              "(167->128->128->64, 3 couches) et tete acteur plus courte (64->32, 1 "
+                              "couche) -- couvre exactement les 4 couches de CardNetBig, contrairement "
+                              "a 'shared' qui n'en reprend que 2. "
+                              "--ablate-points-so-far non supporte avec 'shared'/'shared_aux'/'shared_deep' ; "
+                              "--no-critic-baseline supporte avec 'shared'/'shared_deep' (pas encore "
                               "'shared_aux'). --load accepte alors soit un checkpoint natif de cette "
                               "architecture, soit un checkpoint CardNetBig (ex. imit_bignet_ent02.pt, les "
                               "parties critic/auxiliaire demarrent alors aleatoires).")
@@ -692,24 +702,31 @@ def main():
         random.seed(args.seed)
         torch.manual_seed(args.seed)
 
-    if args.architecture in ('shared', 'shared_aux'):
+    shared_family = ('shared', 'shared_aux', 'shared_deep')
+    if args.architecture in shared_family:
         if args.ablate_points_so_far:
             raise SystemExit("--ablate-points-so-far n'est pas supporte avec "
-                              "--architecture shared/shared_aux.")
+                              "--architecture shared/shared_aux/shared_deep.")
         if args.no_critic_baseline and args.architecture == 'shared_aux':
             raise SystemExit("--no-critic-baseline n'est pas encore supporte avec "
-                              "--architecture shared_aux (seulement 'shared').")
+                              "--architecture shared_aux (seulement 'shared'/'shared_deep').")
         # NeuralPolicy (train.py, utilisee par make_opponent_factory pour charger un
         # adversaire fige du pool) appelle net(x) -> forward(x) -- SharedTrunkActorCritic
-        # definit maintenant forward() comme alias de forward_actor() a cet effet.
-        net_cls = SharedTrunkActorCriticAux if args.architecture == 'shared_aux' else SharedTrunkActorCritic
+        # et SharedTrunkActorCriticDeep definissent toutes deux forward() comme alias
+        # de forward_actor() a cet effet.
+        if args.architecture == 'shared_aux':
+            net_cls = SharedTrunkActorCriticAux
+        elif args.architecture == 'shared_deep':
+            net_cls = SharedTrunkActorCriticDeep
+        else:
+            net_cls = SharedTrunkActorCritic
     else:
         net_cls = CardNetBig if args.architecture == 'big' else CardNet
     opponent_pool = build_opponent_pool(args.opponent, net_cls=net_cls)
     sampler = PFSPSampler(opponent_pool, refresh_every=args.pfsp_refresh_every,
                            temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
 
-    if args.architecture in ('shared', 'shared_aux'):
+    if args.architecture in shared_family:
         if args.architecture == 'shared_aux':
             policy = SharedTrunkAuxPPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
                                               aux_coef=args.aux_coef, entropy_coef=args.entropy_coef,
@@ -718,7 +735,7 @@ def main():
             policy = SharedTrunkPPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
                                            entropy_coef=args.entropy_coef, epochs=args.epochs,
                                            minibatch_size=args.minibatch_size,
-                                           no_critic_baseline=args.no_critic_baseline)
+                                           no_critic_baseline=args.no_critic_baseline, net_cls=net_cls)
     else:
         policy_net_cls = CardNetBig if args.architecture == 'big' else CardNet
         policy = PPOPolicy(lr=args.lr, clip_eps=args.clip_eps, value_coef=args.value_coef,
@@ -729,9 +746,9 @@ def main():
         policy.load(args.load)
         print('poids charges depuis', args.load)
     if args.load_value:
-        if args.architecture in ('shared', 'shared_aux'):
-            raise SystemExit("--load-value n'a pas de sens avec --architecture shared/shared_aux "
-                              "(un seul reseau, pas de value_net separee).")
+        if args.architecture in shared_family:
+            raise SystemExit("--load-value n'a pas de sens avec --architecture shared/shared_aux/"
+                              "shared_deep (un seul reseau, pas de value_net separee).")
         policy.load_value(args.load_value)
         print('poids de value_net charges depuis', args.load_value)
 

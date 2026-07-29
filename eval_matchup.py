@@ -21,7 +21,7 @@ Usage:
 import argparse
 
 from coinche.players import HeuristicPlayer, RLPlayer
-from coinche.rl_agent import CardNet, CardNetBig
+from coinche.rl_agent import CardNet, CardNetBig, SharedTrunkActorCriticDeep
 from eval_policy import generate_fixed_deals, evaluate_fixed
 from train_ppo import PPOPolicy, SharedTrunkPPOPolicy, SharedTrunkAuxPPOPolicy, torch
 
@@ -37,6 +37,8 @@ def load_spec(spec, architecture='small'):
         return None
     if architecture == 'shared_aux':
         policy = SharedTrunkAuxPPOPolicy()
+    elif architecture == 'shared_deep':
+        policy = SharedTrunkPPOPolicy(net_cls=SharedTrunkActorCriticDeep)
     elif architecture == 'shared':
         policy = SharedTrunkPPOPolicy()
     else:
@@ -71,12 +73,14 @@ def main():
     parser.add_argument('--games', type=int, default=3000, help='Nombre de donnes par appariement.')
     parser.add_argument('--seed', type=int, default=42,
                          help='Seed pour generer les donnes fixes (une fois, partagees par tous les appariements).')
-    parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux'], default='small',
+    parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux', 'shared_deep'],
+                         default='small',
                          help="'small' = CardNet (defaut), 'big' = CardNetBig, 'shared' = "
-                              "SharedTrunkActorCritic, 'shared_aux' = SharedTrunkActorCriticAux -- "
-                              "s'applique a TOUS les specs non-heuristic de cet appel ; melanger "
-                              "plusieurs architectures dans un seul round-robin necessite un appel "
-                              "separe par groupe (memes --games/--seed => memes donnes).")
+                              "SharedTrunkActorCritic, 'shared_aux' = SharedTrunkActorCriticAux, "
+                              "'shared_deep' = SharedTrunkActorCriticDeep -- s'applique a TOUS les "
+                              "specs non-heuristic de cet appel ; melanger plusieurs architectures "
+                              "dans un seul round-robin necessite un appel separe par groupe (memes "
+                              "--games/--seed => memes donnes).")
     args = parser.parse_args()
 
     if torch is None:
