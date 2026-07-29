@@ -531,3 +531,22 @@ seed-la est le plus haut des 4 connus (meme piege de lecture que pour
 preuve que rebalancer tronc/tete change quoi que ce soit**, dans un sens
 ou dans l'autre. A confirmer sur plus de seeds si on veut trancher, mais
 rien d'urgent vu ce premier point neutre.
+
+### Seed21 : confirme, tres serre autour du meme point neutre
+
+Meme protocole exact, seed21 : **eval_avg(45000) = +22.78**.
+
+| seed | eval_avg(45000) |
+|---|---|
+| 20 | +23.70 |
+| 21 | +22.78 |
+
+Moyenne **23.24**, ecart-type **0.65** (n=2) -- tres serre, les deux
+seeds quasi indiscernables l'un de l'autre. Confirme la lecture du seed20
+seul : `SharedTrunkActorCriticDeep` tombe pile dans la distribution du
+tronc original (22.09-27.80, moyenne 24.60, n=4) et pres de REINFORCE
+(24.42, n=3), sans aucun signe d'amelioration ni de degradation.
+Rebalancer tronc/tete (3 couches partagees + 1 privee, au lieu de 2+2)
+ne semble donc rien changer, du moins a cette echelle de test -- piste
+neutre, pas prioritaire pour l'instant face au pool grandissant qui reste
+la seule direction ayant clairement depasse ce plateau.
