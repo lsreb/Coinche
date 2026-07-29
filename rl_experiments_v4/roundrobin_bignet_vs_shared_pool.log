@@ -1,0 +1,12 @@
+heuristic                                               vs big:rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  avg= -30.79  win_rate= 43.8%
+heuristic                                               vs shared:rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt  avg= -24.08  win_rate= 45.0%
+big:rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt vs heuristic                                                avg= +31.11  win_rate= 56.2%
+big:rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt vs shared:rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt  avg=  -0.17  win_rate= 50.0%
+shared:rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt vs heuristic                                                avg= +24.31  win_rate= 54.9%
+shared:rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt vs big:rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  avg=  +1.06  win_rate= 50.1%
+
+Resume round-robin (memes 100000 donnes fixees pour tous les appariements, seed=42) :
+                                                                    heuristic  bignet/seg_300000.pt  shared/seg_300000.pt
+heuristic                                                                  --                -30.79                -24.08
+big:rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt                +31.11                    --                 -0.17
+shared:rl_experiments_v4/exp_growing_pool_shared/seg_300000.pt                +24.31                 +1.06                    --

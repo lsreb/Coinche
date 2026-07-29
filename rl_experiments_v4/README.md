@@ -614,3 +614,39 @@ pool grandissant apporte donc bien un gain avec le tronc partage/PPO
 aussi, contrairement a ce que suggerait la premiere lecture -- **un seul
 seed pour l'instant**, a confirmer sur plus de seeds avant de conclure
 definitivement, meme rigueur que partout ailleurs dans cette session.
+
+## Face-a-face direct : pool bignet+REINFORCE vs pool tronc partage+PPO (n=100000)
+
+Les deux meilleurs resultats de la session (pool grandissant + `CardNetBig`/
+REINFORCE, `eval_avg`=+31.70 ; pool grandissant + tronc partage/PPO,
+`eval_avg`=+25.21 mais force de round-robin +15.45) n'avaient jamais ete
+opposes directement l'un a l'autre -- chacun uniquement compare a heuristic
+et a son propre groupe de reference. Ajoute le support du melange
+d'architectures a `eval_matchup.py` (syntaxe `architecture:chemin` par
+spec, ex. `big:seg_300000.pt shared:seg_300000.pt`, jusqu'ici un seul
+`--architecture` pour tout l'appel) pour rendre ce test possible.
+
+Round-robin a 3 specs (heuristic, `big:exp_growing_pool_bignet/seg_300000.pt`,
+`shared:exp_growing_pool_shared/seg_300000.pt`), **n=100000** parties par
+appariement (la precision la plus fine de toute la session, ~10x le
+`--games 45000` habituel) :
+
+| | avg |
+|---|---|
+| bignet-pool vs shared-pool | -0.17 |
+| shared-pool vs bignet-pool | +1.06 |
+
+Corrige du biais de siege : `skill(bignet, shared) = (-0.17 - 1.06)/2 =
+-0.615`. **Statistiquement nul a cette echelle** (n=100000/sens, la plus
+grande precision de toute la session) : les deux checkpoints sont a
+egalite en tete-a-tete direct, malgre des `eval_avg` contre heuristic
+tres differents (+31.70 vs +25.21) et des scores de force de round-robin
+differents dans leurs groupes respectifs (+18.97 vs +15.45 -- mais pas
+calcules contre les memes groupes de reference, donc jamais directement
+comparables entre eux avant ce test).
+
+**Conclusion** : le pool grandissant apporte un gain reel dans les deux
+cas (confirme separement par round-robin pour chaque architecture), mais
+une fois combine au pool, le choix de l'architecture de base (REINFORCE+
+CardNetBig vs PPO+tronc partage) ne semble plus faire de difference de
+niveau final -- les deux convergent vers une force de jeu similaire.
