@@ -1112,7 +1112,7 @@ class HumanPlayer(Player):
 
         print(f"Ta main : {_fmt_hand(self.hand, trump)}")
         if trick:
-            print(f"Couleur demandée : {_trump_label(trick[0][1].suit)}")
+            print(f"Couleur demandée : {_trump_label(trick[0][1].suit)} (par {self._label(trick[0][0])})")
 
         legal = engine.legal_moves(seat, self.hand, trick, trump)
         while True:
