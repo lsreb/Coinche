@@ -2,7 +2,7 @@ import argparse
 import json
 
 from coinche.game import GameEngine
-from coinche.players import create_player, RLPlayer
+from coinche.players import create_player, RLPlayer, HumanPlayer
 from coinche.rl_agent import SimplePolicy
 from render_history import generate_page
 
@@ -73,6 +73,9 @@ def main():
     engine.deal(hands)
     engine.run_auction()
     team_points, contract = engine.play()
+    for p in players:
+        if isinstance(p, HumanPlayer):
+            p.show_new_tricks()  # rattrape le dernier pli, jamais vu si on n'y jouait pas en dernier
 
     taker_team = engine.taker_idx % 2
     level = 'capot' if contract.capot else contract.level

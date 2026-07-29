@@ -998,6 +998,10 @@ def _find_card(raw: str, hand: List[Card]) -> Optional[Card]:
     return None
 
 
+def _card_from_repr(raw: str) -> Card:
+    return Card(raw[-1], raw[:-1])
+
+
 class HumanPlayer(Player):
     """Joueur controle au clavier : bid()/play_card() affichent l'etat courant
     (relu depuis self.engine.history, comme HeuristicPlayer) et lisent la reponse
@@ -1006,15 +1010,35 @@ class HumanPlayer(Player):
     def __init__(self, name: str):
         super().__init__(name)
         self._deal_count = 0
+        self._shown_tricks = 0
 
     def deal(self, hand: List[Card]):
         super().deal(hand)
         self._deal_count += 1
+        self._shown_tricks = 0
         if self._deal_count > 1:
             print("\n(Tout le monde a passé — nouvelle donne.)")
 
     def _label(self, seat: int) -> str:
         return SEAT_LABELS.get(seat, str(seat))
+
+    def _print_trick_recap(self, trick_record: dict, trick_no: int):
+        plays = '  '.join(
+            f"{self._label(p['seat'])}:{_fmt_card(_card_from_repr(p['card']))}"
+            for p in trick_record['plays']
+        )
+        winner = trick_record['winner']
+        print(f"\n[Pli {trick_no} terminé] {plays}  →  {self._label(winner)} ({self._relation(winner)}) remporte")
+
+    def show_new_tricks(self):
+        """Rattrape l'affichage des plis termines depuis le dernier appel (self.engine.history
+        est le seul canal pour savoir ce qui s'est joue -- necessaire quand ce joueur n'est pas
+        le dernier a jouer dans un pli : les 1-2 dernieres cartes sont jouees "en silence" par les
+        bots avant que ce ne soit de nouveau son tour)."""
+        tricks = self.engine.history['tricks']
+        while self._shown_tricks < len(tricks):
+            self._print_trick_recap(tricks[self._shown_tricks], self._shown_tricks + 1)
+            self._shown_tricks += 1
 
     def _relation(self, other_seat: int) -> str:
         if other_seat == self.seat:
@@ -1068,6 +1092,7 @@ class HumanPlayer(Player):
 
     def play_card(self, seat: int, leader: int, trick: list, trump: str):
         engine = self.engine
+        self.show_new_tricks()
         trick_no = len(engine.history['tricks']) + 1
         contract = engine.contract
         contract_label = f"capot{_trump_label(trump)}" if contract.capot else f"{contract.level}{_trump_label(trump)}"
