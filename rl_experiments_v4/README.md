@@ -489,3 +489,45 @@ utilite nulle part dans ce code, meme la ou elle a enfin un vrai canal
 vers l'acteur. Poursuivre exigerait 2-3 seeds de plus en
 `--no-critic-baseline` pour un vrai test statistique contre la
 distribution n=4 existante -- pas encore fait, piste pour plus tard.
+
+## `SharedTrunkActorCriticDeep` (tronc 3 couches, tete acteur 1 couche) : premier test, seed20
+
+Rebalancement de `SharedTrunkActorCritic` (design exact fourni par
+l'utilisateur, discussion du 2026-07-28) : tronc plus profond
+(`167->128->128->64`, 3 couches -- couvre EXACTEMENT les 3 premieres
+couches de `CardNetBig`) et tete acteur plus courte (`64->32`, 1 seule
+couche -- la derniere de `CardNetBig`), au lieu du decoupage 2+2
+actuel. Tete critic : branche centralisee `96->64` (egale a la dim de
+sortie du tronc, fusion plus equilibree que l'ancien 128 vs 32), 1
+couche privee `128->32`, sortie `32->1`.
+
+Classe independante (`coinche/rl_agent.py`), jamais modifie
+`SharedTrunkActorCritic` en place. `load_actor_from_cardnetbig` remappe
+`imit_bignet_ent02.pt` sans aucune perte (le split tronc/tete correspond
+exactement aux 4 couches de `CardNetBig`) -- verifie bit a bit identique,
+donc **pas besoin de retrain l'imitation**. `SharedTrunkPPOPolicy` gagne
+un parametre `net_cls` (comme `PPOPolicy`) au lieu d'une classe wrapper
+dupliquee. Nouveau choix `--architecture shared_deep`.
+
+Meme protocole exact que la reference (`lr=3e-5, epochs=4,
+value_coef=0.2`, depuis `imit_bignet_ent02.pt`, seed20 -- meme seed que
+les 2 autres variantes deja testees, pour comparaison directe).
+Entrainement sain tout du long (`clip_frac` normal, pas de collapse).
+
+| | eval_avg(45000) |
+|---|---|
+| Tronc original (2+2), seed20, avec critic | +27.80 |
+| Tronc original (2+2), seed20, sans critic | +24.03 |
+| **Tronc profond (3+1), seed20, avec critic** | **+23.70** |
+| Tronc original, moyenne n=4 | 24.60 (std 2.50, range 22.09-27.80) |
+| REINFORCE simple, moyenne n=3 | 24.42 (std 1.05) |
+
+**Lecture honnete (n=1)** : `+23.70` tombe confortablement dans la
+distribution deja etablie du tronc original (22.09-27.80), tres proche
+de sa moyenne (24.60) et de celle de REINFORCE (24.42). Compare
+specifiquement au seed20 original (27.80) ca semble moins bon, mais ce
+seed-la est le plus haut des 4 connus (meme piege de lecture que pour
+`--no-critic-baseline` ci-dessus) -- pas une comparaison juste. **Aucune
+preuve que rebalancer tronc/tete change quoi que ce soit**, dans un sens
+ou dans l'autre. A confirmer sur plus de seeds si on veut trancher, mais
+rien d'urgent vu ce premier point neutre.
