@@ -934,6 +934,175 @@ class HeuristicPlayer(Player):
         self.hand.remove(choice)
         return choice
 
+SEAT_LABELS = {0: 'N', 1: 'W', 2: 'S', 3: 'E'}  # doit rester aligne avec render_history.PLAYER_POSITIONS
+SUIT_SYMBOLS = {'P': '♠', 'C': '♥', 'K': '♦', 'T': '♣'}
+_RED_SUITS = {'C', 'K'}
+_ANSI_RED = '\033[91m'
+_ANSI_RESET = '\033[0m'
+
+
+def _trump_label(trump: str) -> str:
+    return SUIT_SYMBOLS.get(trump, trump)
+
+
+def _fmt_card(card: Card) -> str:
+    text = f"{card.rank}{SUIT_SYMBOLS.get(card.suit, card.suit)}"
+    if card.suit in _RED_SUITS:
+        return f"{_ANSI_RED}{text}{_ANSI_RESET}"
+    return text
+
+
+def _fmt_hand(hand: List[Card], trump: Optional[str] = None) -> str:
+    groups = []
+    for s in SUITS:
+        cards = [c for c in hand if c.suit == s]
+        if not cards:
+            continue
+        order = TRUMP_ORDER if (trump == 'TA' or s == trump) else NORMAL_ORDER
+        cards = sorted(cards, key=lambda c: order.index(c.rank) if c.rank in order else 99)
+        groups.append(' '.join(_fmt_card(c) for c in cards))
+    return '  |  '.join(groups) if groups else '(vide)'
+
+
+def _fmt_bid(bid) -> str:
+    level, trump, coinched, capot = bid
+    label = f"capot{_trump_label(trump)}" if capot else f"{level}{_trump_label(trump)}"
+    if coinched:
+        label += " (coinché)"
+    return label
+
+
+def _parse_bid_str(raw: str):
+    s = raw.strip().upper().replace(' ', '')
+    if not s:
+        return None
+    valid_trumps = SUITS + ['SA', 'TA']
+    if s.startswith('CAPOT'):
+        trump = s[len('CAPOT'):]
+        return (250, trump, False, True) if trump in valid_trumps else None
+    i = 0
+    while i < len(s) and s[i].isdigit():
+        i += 1
+    if i == 0 or s[i:] not in valid_trumps:
+        return None
+    return (int(s[:i]), s[i:], False, False)
+
+
+def _find_card(raw: str, hand: List[Card]) -> Optional[Card]:
+    if len(raw) < 2:
+        return None
+    suit, rank = raw[-1], raw[:-1]
+    for c in hand:
+        if c.suit == suit and c.rank == rank:
+            return c
+    return None
+
+
+class HumanPlayer(Player):
+    """Joueur controle au clavier : bid()/play_card() affichent l'etat courant
+    (relu depuis self.engine.history, comme HeuristicPlayer) et lisent la reponse
+    sur stdin, en reutilisant les memes checks de legalite que le moteur."""
+
+    def __init__(self, name: str):
+        super().__init__(name)
+        self._deal_count = 0
+
+    def deal(self, hand: List[Card]):
+        super().deal(hand)
+        self._deal_count += 1
+        if self._deal_count > 1:
+            print("\n(Tout le monde a passé — nouvelle donne.)")
+
+    def _label(self, seat: int) -> str:
+        return SEAT_LABELS.get(seat, str(seat))
+
+    def _relation(self, other_seat: int) -> str:
+        if other_seat == self.seat:
+            return 'toi'
+        if other_seat == (self.seat + 2) % 4:
+            return 'ton partenaire'
+        return 'adversaire'
+
+    def bid(self, current_best):
+        engine = self.engine
+        auction = engine.history['auction']
+        parts = [
+            f"{self._label(e['seat'])} passe" if e['offer'] is None
+            else f"{self._label(e['seat'])} {_fmt_bid(e['offer'])}"
+            for e in auction
+        ]
+        auction_line = (' · '.join(parts) + ' · → à toi') if parts else '→ à toi'
+
+        print(f"\n=== Enchère — {self._label(self.seat)} (toi) ===")
+        print(f"Enchères : {auction_line}")
+        print(f"Ta main : {_fmt_hand(self.hand)}")
+        if current_best is not None:
+            last = next((e for e in reversed(auction) if e['offer'] is not None), None)
+            bidder = self._label(last['seat']) if last else '?'
+            who = self._relation(last['seat']) if last else '?'
+            print(f"Contrat actuel : {_fmt_bid(current_best)} ({bidder}, {who})")
+        else:
+            print("Contrat actuel : aucun")
+
+        while True:
+            choice = input("[p] passer   [b] surenchérir   [c] coincher > ").strip().lower()
+            if choice in ('', 'p', 'pass', 'passe'):
+                return None
+            if choice in ('c', 'coinche', 'coincher'):
+                if current_best is None:
+                    print("  Impossible de coincher : aucune enchère en cours.")
+                    continue
+                return (current_best[0], current_best[1], True, current_best[3])
+            if choice in ('b', 'bid', 'surencherir', 'surenchérir'):
+                raw = input("  Ton enchère (ex: 90C, 100TA, capotP) : ").strip()
+                parsed = _parse_bid_str(raw)
+                if parsed is None:
+                    print("  Format non reconnu.")
+                    continue
+                normalized = engine._normalize_bid(parsed)
+                if not engine._is_valid_bid(normalized, current_best):
+                    print("  Enchère invalide (palier ou couleur non autorisés).")
+                    continue
+                return normalized
+            print("  Choix non reconnu.")
+
+    def play_card(self, seat: int, leader: int, trick: list, trump: str):
+        engine = self.engine
+        trick_no = len(engine.history['tricks']) + 1
+        contract = engine.contract
+        contract_label = f"capot{_trump_label(trump)}" if contract.capot else f"{contract.level}{_trump_label(trump)}"
+        print(f"\n=== Pli {trick_no}/8 — {self._label(seat)} (toi) ===")
+        print(f"Contrat : {contract_label} par {self._label(engine.taker_idx)} ({self._relation(engine.taker_idx)})")
+
+        played = dict(trick)
+        for s in range(4):
+            tag = '(toi)' if s == seat else ('(partenaire)' if s == (seat + 2) % 4 else '(adv.)')
+            if s in played:
+                status = f"[ {_fmt_card(played[s])} ]"
+            elif s == seat:
+                status = "(à toi de jouer)"
+            else:
+                status = "(en attente)"
+            print(f"  {self._label(s):1s} {tag:12s} {status}")
+
+        print(f"Ta main : {_fmt_hand(self.hand, trump)}")
+        if trick:
+            print(f"Couleur demandée : {_trump_label(trick[0][1].suit)}")
+
+        legal = engine.legal_moves(seat, self.hand, trick, trump)
+        while True:
+            raw = input("Ta carte (code, ex. 8K) : ").strip().upper()
+            card = _find_card(raw, self.hand)
+            if card is None:
+                print("  Carte invalide ou absente de ta main.")
+                continue
+            if card not in legal:
+                print("  Coup illégal (tu dois suivre/couper/monter selon la règle).")
+                continue
+            self.hand.remove(card)
+            return card
+
+
 class RLPlayer(HeuristicPlayer):
     """Enchérit exactement comme HeuristicPlayer (bid() hérité tel quel) ; seul le
     jeu de la carte est délégué à une policy entraînable. Sans policy attachée,
@@ -955,6 +1124,8 @@ def create_player(strategy: str, name: str):
     s = strategy.lower()
     if s == 'random':
         return RandomPlayer(name)
+    if s == 'human':
+        return HumanPlayer(name)
     if s.startswith('heuristic') or s == 'user':
         # allow variants like 'heuristic:user' or 'heuristic:assistant'
         parts = s.split(':')
