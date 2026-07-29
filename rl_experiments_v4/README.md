@@ -449,3 +449,43 @@ CardNet" de v3.
 pour v3, ou le pattern a fini par se confirmer identiquement sur 3 seeds
 REINFORCE + 2 PPO) avant de traiter ce resultat comme definitivement
 etabli.
+
+## `--no-critic-baseline` sur le tronc partage (seed20) : toujours aucun effet net
+
+Debloque `--no-critic-baseline` pour `--architecture shared` (jusqu'ici
+interdit par le code) : avantage = retour centre/normalise sur le batch
+(comme REINFORCE), la tete critic n'est ni appelee ni entrainee
+(`value_loss` reste a 0 tout du long -- verifie). Question posee : le
+tronc partage est la SEULE architecture ou le critic a un vrai canal de
+gradient vers l'acteur (contrairement aux 4 tentatives anterieures avec
+un `ValueNet` independant, toutes sans effet mesurable) -- est-ce que
+cette fois sa baseline sert vraiment a quelque chose ?
+
+Meme protocole exact que la reference (`lr=3e-5, epochs=4, value_coef=0.2`
+-- ce dernier n'a plus d'effet ici puisque `value_loss=0`), **meme
+seed20** que la reference deja connue, pour une comparaison directe :
+
+| | eval_avg(45000) |
+|---|---|
+| seed20, avec critic (`value_coef=0.2`) | +27.80 |
+| seed20, **sans** critic (`--no-critic-baseline`) | +24.03 |
+
+Comparaison brute seed-a-seed : -3.77 points, l'air d'une degradation.
+**Mais lue contre la vraie distribution des 4 seeds deja confirmes avec
+critic (22.09 / 23.28 / 25.23 / **27.80**, moyenne 24.60, ecart-type
+2.50)**, +24.03 tombe confortablement DANS cette fourchette, tres proche
+de la moyenne -- et `27.80` (seed20 avec critic) est justement le PLUS
+HAUT des 4 seeds connus, pas un point typique. Comparer "sans critic" a
+specifiquement ce seed-la (le plus favorable au critic) plutot qu'a la
+moyenne du groupe biaise la lecture vers "le critic aide" alors que rien
+ne le montre clairement une fois la variance inter-seeds prise en compte.
+
+**Lecture honnete (n=1 pour la config sans critic, prudence de rigueur)** :
+aucune preuve que le critic apporte un gain net sur le tronc partage non
+plus -- **7e resultat consecutif de ce type dans le projet** (apres 4
+tentatives sur un `ValueNet` independant + le tronc partage lui-meme qui
+egale seulement REINFORCE) : la baseline du critic ne montre son
+utilite nulle part dans ce code, meme la ou elle a enfin un vrai canal
+vers l'acteur. Poursuivre exigerait 2-3 seeds de plus en
+`--no-critic-baseline` pour un vrai test statistique contre la
+distribution n=4 existante -- pas encore fait, piste pour plus tard.
