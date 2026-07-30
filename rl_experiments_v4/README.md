@@ -699,9 +699,14 @@ entre les deux meilleurs). Le tete-a-tete direct reste le signal le plus
 pertinent pour repondre a la question posee ("450k est-il plus faible
 que 300k ?") : la reponse est non, c'est meme legerement l'inverse.
 
-**Conclusion** : le "declin" de `eval_avg` ne reflete pas une vraie
-regression de niveau -- encore un glissement de specialisation (moins
-d'exploitation d'heuristic specifiquement), pas une perte de force
-generale. Continuer l'entrainement jusqu'a 450k ne semble donc pas
-nuire. Pas de preuve non plus d'un gain net au-dela de 300k -- les deux
-sont essentiellement a egalite en vraie force.
+**Conclusion (corrigee)** : le "declin" de `eval_avg` ne reflete pas une
+vraie regression -- encore un glissement de specialisation (moins
+d'exploitation d'heuristic specifiquement). Mais contrairement a une
+premiere lecture trop prudente ("essentiellement a egalite"), le
+tete-a-tete montre un **vrai gain**, pas juste une absence de perte :
++5.08 corrige, coherent dans les deux sens (300k perd dans les deux
+orientations du match), du meme ordre de grandeur que les autres ecarts
+traites comme reels cette session a n=10000 (+6.45, +7.36, +11.13...).
+Continuer l'entrainement jusqu'a 450k a donc reellement aide. Question
+ouverte : est-ce que ca continue a progresser au-dela de 450k, ou est-ce
+la que ca plafonne vraiment ? Pas encore teste.
