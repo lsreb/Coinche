@@ -1130,6 +1130,8 @@ class HumanPlayer(Player):
             tag = '(toi)' if s == seat else ('(partenaire)' if s == (seat + 2) % 4 else '(adv.)')
             if s in played:
                 status = f"[ {_fmt_card(played[s])} ]"
+                if s == leader:
+                    status += " [entame]"
             elif s == seat:
                 status = "(à toi de jouer)"
             else:
@@ -1137,8 +1139,6 @@ class HumanPlayer(Player):
             print(f"  {self._label(s):1s} {tag:12s} {status}")
 
         print(f"Ta main : {_fmt_hand(self.hand, trump)}")
-        if trick:
-            print(f"Couleur demandée : {_trump_label(trick[0][1].suit)} (par {self._label(trick[0][0])})")
         self._advisor_hint('play', leader=leader, trick=trick, trump=trump)
 
         legal = engine.legal_moves(seat, self.hand, trick, trump)
