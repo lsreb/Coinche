@@ -186,9 +186,27 @@ class GameEngine:
 
         lead_suit = trick[0][1].suit
 
-        if trump in ('SA', 'TA'):
+        if trump == 'SA':
             same = [c for c in hand if c.suit == lead_suit]
             return same if same else list(hand)
+
+        if trump == 'TA':
+            # A TA, "l'ordre et les valeurs de toutes les couleurs sont celles
+            # de l'atout" (regles_coinche.md §3) -- la couleur demandee se
+            # comporte donc comme un atout demande en contrat couleur : on
+            # doit monter en force si possible (meme logique que la branche
+            # `lead_suit == trump` ci-dessous), pas de defausse libre tant
+            # qu'on a cette couleur en main.
+            same = [c for c in hand if c.suit == lead_suit]
+            if not same:
+                return list(hand)
+            current_winner = trick[0]
+            for t in trick[1:]:
+                if self.card_order_key(t[1], lead_suit, trump) > self.card_order_key(current_winner[1], lead_suit, trump):
+                    current_winner = t
+            beating = [c for c in same
+                       if self.card_order_key(c, lead_suit, trump) > self.card_order_key(current_winner[1], lead_suit, trump)]
+            return beating if beating else same
 
         same = [c for c in hand if c.suit == lead_suit]
         trumps = [c for c in hand if c.suit == trump]
