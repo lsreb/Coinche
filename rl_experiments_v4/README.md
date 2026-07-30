@@ -650,3 +650,28 @@ cas (confirme separement par round-robin pour chaque architecture), mais
 une fois combine au pool, le choix de l'architecture de base (REINFORCE+
 CardNetBig vs PPO+tronc partage) ne semble plus faire de difference de
 niveau final -- les deux convergent vers une force de jeu similaire.
+
+## Pool bignet+REINFORCE etendu a 450k (segments 7-9) : `eval_avg` decline, round-robin necessaire pour trancher
+
+Meme seed (40, `--start-segment 7` sur `rl_experiments_v4/exp_growing_pool_bignet/`,
+memes hyperparametres) pour voir si la progression continue au-dela de
+300k. Les 3 segments supplementaires tournent proprement (2072-2108s
+chacun, dans la norme).
+
+| Segment | eval_avg(45000) |
+|---|---|
+| 300k | +31.70 |
+| 350k | +31.28 |
+| 400k | +29.53 |
+| 450k | +28.70 |
+
+**Lecture prudente** : `eval_avg` contre heuristic seul decline
+graduellement apres 300k -- mais cette metrique seule est connue pour
+etre trompeuse sur un checkpoint entraine en pool (lecon de v3, deja
+confirmee deux fois cette session : le "gain reel" du pool grandissant
+tronc-partage etait invisible dans `eval_avg`, revele seulement par
+round-robin). Cette decline pourrait donc refleter soit un vrai plafond
+(300k etait deja pres de l'optimal), soit un simple glissement de
+specialisation (moins d'exploitation d'heuristic, sans perte de niveau
+general face a d'autres styles) -- **round-robin necessaire avant de
+conclure quoi que ce soit**, pas encore fait.

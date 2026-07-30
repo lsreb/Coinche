@@ -17,3 +17,13 @@
   pool: heuristic,rl_experiments_v4/exp_growing_pool_bignet/seg_50000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_100000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_150000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_200000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_250000.pt
   segment 6 termine en 2079s, poids dans rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt
 Orchestration terminee : 6 segments, pool final a 7 membres (heuristic + 6 snapshots).
+=== Segment 7/9 : episodes 300001-350000 (pool a 7 membres) ===
+  pool: heuristic,rl_experiments_v4/exp_growing_pool_bignet/seg_50000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_100000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_150000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_200000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_250000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt
+  segment 7 termine en 2072s, poids dans rl_experiments_v4/exp_growing_pool_bignet/seg_350000.pt
+=== Segment 8/9 : episodes 350001-400000 (pool a 8 membres) ===
+  pool: heuristic,rl_experiments_v4/exp_growing_pool_bignet/seg_50000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_100000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_150000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_200000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_250000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_350000.pt
+  segment 8 termine en 2100s, poids dans rl_experiments_v4/exp_growing_pool_bignet/seg_400000.pt
+=== Segment 9/9 : episodes 400001-450000 (pool a 9 membres) ===
+  pool: heuristic,rl_experiments_v4/exp_growing_pool_bignet/seg_50000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_100000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_150000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_200000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_250000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_350000.pt,rl_experiments_v4/exp_growing_pool_bignet/seg_400000.pt
+  segment 9 termine en 2108s, poids dans rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt
+Orchestration terminee : 9 segments, pool final a 10 membres (heuristic + 9 snapshots).
