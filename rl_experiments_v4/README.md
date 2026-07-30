@@ -710,3 +710,36 @@ traites comme reels cette session a n=10000 (+6.45, +7.36, +11.13...).
 Continuer l'entrainement jusqu'a 450k a donc reellement aide. Question
 ouverte : est-ce que ca continue a progresser au-dela de 450k, ou est-ce
 la que ca plafonne vraiment ? Pas encore teste.
+
+## Extension a 600k (segments 10-12) : la progression continue, remarquablement lineaire
+
+Meme seed (40), memes hyperparametres, `--start-segment 10` depuis
+`seg_450000.pt`. 3 segments supplementaires sains (1963-2185s chacun).
+
+Round-robin (4 specs : heuristic, vanille REINFORCE, pool 450k, pool
+600k, n=10000) :
+
+**Tete-a-tete direct 450k vs 600k** : 450k vs 600k = -2.64, 600k vs 450k
+= +7.95 -- corrige, **600k bat 450k de +5.30**. Quasiment le meme ecart
+que 450k vs 300k (+5.08) !
+
+Force moyenne (contre les 3 autres) :
+
+| | force moyenne |
+|---|---|
+| **Pool, 600k** | **+19.57** |
+| Pool, 450k | +11.33 |
+| Vanille (REINFORCE simple) | -0.81 |
+| Heuristic | -30.09 |
+
+**Classement parfaitement monotone** (600k > 450k > vanille > heuristic),
+et l'ecart entre chaque palier de 150k episodes est remarquablement
+stable (~+5 points a chaque fois, 300k->450k et 450k->600k). Aucun signe
+de plafond -- au contraire, une progression qui ressemble a une droite.
+`eval_avg` continue lui aussi de suggerer une "decline" par rapport a
+300k pour ces checkpoints geants contre heuristic seul (glissement de
+specialisation, cf. plus haut), donc a ne pas utiliser pour juger cette
+tendance -- seul le round-robin le permet.
+
+**A faire si on veut poursuivre** : pousser encore (750k, 900k...) pour
+voir jusqu'ou la progression continue avant de vraiment plafonner.
