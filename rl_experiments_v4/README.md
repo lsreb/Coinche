@@ -743,3 +743,37 @@ tendance -- seul le round-robin le permet.
 
 **A faire si on veut poursuivre** : pousser encore (750k, 900k...) pour
 voir jusqu'ou la progression continue avant de vraiment plafonner.
+
+## Bug legal_moves() a TA (2026-07-29) : corrige, impact evalue sans necessite de retrain
+
+Trouve en jouant une partie interactive (`play_interactive.py`) : `legal_moves()`
+(`coinche/game.py`) traitait TA exactement comme SA -- aucune obligation
+de monter en force en suivant la couleur demandee, alors que
+`regles_coinche.md` dit explicitement qu'a TA "l'ordre et les valeurs de
+toutes les couleurs sont celles de l'atout" (meme logique que l'atout
+demande en contrat couleur). Corrige (commit `7849f42`) : TA reutilise
+desormais la logique de la branche `lead_suit == trump` (obligation de
+monter si possible, sinon jouer une carte inferieure de la couleur --
+jamais de defausse libre tant qu'on a cette couleur en main). SA
+inchange. Verifie sur 3 scenarios + 500 parties heuristic x4 simulees
+(51 a TA) sans crash.
+
+**Impact sur les donnees d'entrainement passees, evalue avant de decider
+d'un retrain** : `HeuristicPlayer._follow_card()` calcule deja lui-meme
+les cartes qui battent le pli et en joue TOUJOURS une en priorite quand
+c'est possible, independamment de ce que `legal_moves()` autorisait --
+sa strategie respectait deja la bonne regle par sa propre logique. Les
+parties heuristique-vs-heuristique (cibles d'imitation, adversaire tout
+au long de l'entrainement RL) n'ont donc quasiment pas ete affectees.
+Seule la policy RL pouvait techniquement echantillonner une carte
+desormais illegale pendant l'exploration -- mais l'imitation avait deja
+appris a reproduire le "toujours monter" de l'heuristique, donc la
+probabilite sur ces coups etait deja quasi nulle avant meme le fix.
+**Conclusion : pas besoin de retrain complet.** Les comparaisons
+relatives de cette session restent valables (tout mesure sous la meme
+regle, de bout en bout, round-robins compris).
+
+**Note pour la prochaine session** : refaire un round-robin
+d'evaluation (sanity-check sous la regle corrigee) et continuer a
+pousser le pool grandissant ensemble (cf. section precedente, aucun
+signe de plafond a 600k).
