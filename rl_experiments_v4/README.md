@@ -670,8 +670,38 @@ graduellement apres 300k -- mais cette metrique seule est connue pour
 etre trompeuse sur un checkpoint entraine en pool (lecon de v3, deja
 confirmee deux fois cette session : le "gain reel" du pool grandissant
 tronc-partage etait invisible dans `eval_avg`, revele seulement par
-round-robin). Cette decline pourrait donc refleter soit un vrai plafond
-(300k etait deja pres de l'optimal), soit un simple glissement de
-specialisation (moins d'exploitation d'heuristic, sans perte de niveau
-general face a d'autres styles) -- **round-robin necessaire avant de
-conclure quoi que ce soit**, pas encore fait.
+round-robin).
+
+### Round-robin (n=10000) : le "declin" ne se confirme pas en tete-a-tete direct
+
+4 specs (heuristic, vanille REINFORCE, pool 300k, pool 450k) :
+
+**Tete-a-tete direct 300k vs 450k** : 300k vs 450k = -1.60, 450k vs 300k
+= +8.56 -- corrige du biais de siege, **450k bat 300k de +5.08 points**.
+En confrontation directe, 450k n'est donc PAS plus faible que 300k, au
+contraire.
+
+Force moyenne (contre les 3 autres) :
+
+| | force moyenne |
+|---|---|
+| Pool, 300k | +15.73 |
+| Pool, 450k | +11.40 |
+| Vanille (REINFORCE simple) | +1.51 |
+| Heuristic | -28.63 |
+
+**Tension apparente, mais pas contradictoire** : dans la force moyenne,
+300k semble devant -- tire par sa meilleure performance contre heuristic
+et vanille (des adversaires plus faibles), un artefact bien connu de ce
+type de classement a peu d'entites (une moyenne sur un petit groupe
+d'adversaires n'est pas forcement transitive avec le tete-a-tete direct
+entre les deux meilleurs). Le tete-a-tete direct reste le signal le plus
+pertinent pour repondre a la question posee ("450k est-il plus faible
+que 300k ?") : la reponse est non, c'est meme legerement l'inverse.
+
+**Conclusion** : le "declin" de `eval_avg` ne reflete pas une vraie
+regression de niveau -- encore un glissement de specialisation (moins
+d'exploitation d'heuristic specifiquement), pas une perte de force
+generale. Continuer l'entrainement jusqu'a 450k ne semble donc pas
+nuire. Pas de preuve non plus d'un gain net au-dela de 300k -- les deux
+sont essentiellement a egalite en vraie force.

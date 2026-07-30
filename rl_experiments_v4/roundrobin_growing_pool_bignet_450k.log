@@ -1,0 +1,19 @@
+heuristic                                               vs rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt  avg= -20.78  win_rate= 45.8%
+heuristic                                               vs rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  avg= -25.55  win_rate= 44.8%
+heuristic                                               vs rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt  avg= -26.33  win_rate= 44.6%
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt vs heuristic                                                avg= +31.30  win_rate= 56.3%
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  avg=  -6.38  win_rate= 48.8%
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt  avg=  -7.23  win_rate= 48.6%
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt vs heuristic                                                avg= +36.39  win_rate= 57.3%
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt vs rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt  avg= +15.88  win_rate= 53.2%
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt  avg=  -1.60  win_rate= 49.7%
+rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt vs heuristic                                                avg= +31.42  win_rate= 56.4%
+rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt vs rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt  avg= +13.56  win_rate= 52.7%
+rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  avg=  +8.56  win_rate= 51.8%
+
+Resume round-robin (memes 10000 donnes fixees pour tous les appariements, seed=42) :
+                                                                    heuristic  /reinforce_100000.pt  bignet/seg_300000.pt  bignet/seg_450000.pt
+heuristic                                                                  --                -20.78                -25.55                -26.33
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt                +31.30                    --                 -6.38                 -7.23
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt                +36.39                +15.88                    --                 -1.60
+rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt                +31.42                +13.56                 +8.56                    --
