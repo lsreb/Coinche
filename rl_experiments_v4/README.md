@@ -777,3 +777,34 @@ regle, de bout en bout, round-robins compris).
 d'evaluation (sanity-check sous la regle corrigee) et continuer a
 pousser le pool grandissant ensemble (cf. section precedente, aucun
 signe de plafond a 600k).
+
+## Extension a 750k (segments 13-15) : la progression continue, mais ralentit nettement
+
+Meme seed (40), memes hyperparametres, `--start-segment 13` depuis
+`seg_600000.pt`. 3 segments supplementaires sains (2030-2198s chacun).
+
+Round-robin (4 specs : heuristic, vanille REINFORCE, pool 600k, pool
+750k, n=10000) :
+
+**Tete-a-tete direct 600k vs 750k** : 600k vs 750k = -1.24, 750k vs 600k
+= +2.91 -- corrige, **750k bat 600k de +2.08**. Positif, mais nettement
+plus petit que les paliers precedents (+5.08 pour 300k->450k, +5.30 pour
+450k->600k).
+
+Force moyenne (contre les 3 autres) :
+
+| | force moyenne |
+|---|---|
+| **Pool, 750k** | **+18.97** |
+| Pool, 600k | +17.10 |
+| Vanille (REINFORCE simple) | -3.00 |
+| Heuristic | -33.07 |
+
+**Toujours monotone, mais l'ecart entre paliers a ete divise par ~2.5**
+(de ~+5 a ~+2). Rendements decroissants qui commencent a se voir --
+premier signe (pas encore une preuve) qu'on approche d'un vrai plafond,
+apres 3 paliers consecutifs de progression reelle (300k->450k->600k->750k).
+
+**A faire si on veut trancher** : au moins un palier de plus (900k) pour
+voir si l'ecart continue a se retrecir jusqu'a devenir nul, ou s'il se
+stabilise a un petit gain positif residuel.
