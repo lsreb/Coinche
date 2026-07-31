@@ -26,9 +26,26 @@ Usage:
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
+
+
+def _parse_final_winrates(log_path):
+    """Parse la derniere ligne 'PFSP picks total: ...' d'un log de segment
+    (imprimee par train.py/PFSPSampler.summary()) pour recuperer le win-rate
+    final de la policy contre chaque adversaire de CE segment -- utilise pour
+    elaguer le pool par faiblesse (cf. --pool-max-size). Chaque segment est un
+    sous-process frais (PFSPSampler.ema_winrate redemarre a 0.5 pour tout le
+    monde a chaque invocation de train.py), donc ce resume final logge est la
+    seule trace disponible du win-rate d'un segment a l'autre."""
+    with open(log_path) as f:
+        lines = f.readlines()
+    summary_line = next((l for l in reversed(lines) if l.startswith('PFSP picks total:')), None)
+    if summary_line is None:
+        return {}
+    return {name: float(wr) for name, wr in re.findall(r'(\S+):\d+x\(wr=([\d.]+)\)', summary_line)}
 
 
 def _prune_pool(pool_checkpoints, keep_every):
@@ -92,6 +109,18 @@ def main():
                               "le sous-ensemble propose comme adversaire est reduit, pour limiter la "
                               "dilution du budget PFSP par adversaire a mesure que le pool grandit "
                               "(defaut 1 = tout garder, comportement inchange).")
+    parser.add_argument('--pool-max-size', type=int, default=None,
+                         help="Plafond dur sur le nombre d'adversaires (hors heuristic, toujours en "
+                              "plus) proposes a train.py. Applique APRES --pool-keep-every : si le pool "
+                              "encore trop grand, retire l'adversaire au win-rate le plus haut (le moins "
+                              "coriace, mesure via le resume PFSP final du segment qui vient de tourner, "
+                              "cf. _parse_final_winrates) -- jamais le tout dernier ajoute. PAS un bannissement "
+                              "definitif : reevalue a chaque segment a partir des donnees les plus fraiches, "
+                              "donc un adversaire ecarte peut revenir plus tard s'il n'y a pas de donnee de "
+                              "win-rate plus recente et defavorable sur les autres (fallback neutre 0.5, cf. "
+                              "_parse_final_winrates) -- le checkpoint lui-meme n'est jamais supprime du "
+                              "disque, seulement exclu ou reintegre comme adversaire propose. Defaut aucun "
+                              "plafond (comportement inchange).")
     args = parser.parse_args()
 
     if args.total_episodes % args.segment_episodes != 0:
@@ -100,6 +129,7 @@ def main():
     n_segments = args.total_episodes // args.segment_episodes
 
     pool_checkpoints = []  # checkpoints finaux des segments precedents, dans l'ordre
+    prev_log_path = None  # log du dernier segment reellement tourne (pour le win-rate final, cf. --pool-max-size)
     for seg in range(1, n_segments + 1):
         offset = (seg - 1) * args.segment_episodes
         global_end = seg * args.segment_episodes
@@ -107,10 +137,23 @@ def main():
 
         if seg < args.start_segment:
             pool_checkpoints.append(ckpt_path)  # deja fait lors d'une reprise precedente
+            prev_log_path = os.path.join(args.out_dir, f'seg_{global_end}.log')
             continue
 
         load_path = args.init_load if seg == 1 else os.path.join(args.out_dir, f'seg_{offset}.pt')
-        pruned_pool = _prune_pool(pool_checkpoints, args.pool_keep_every)
+        candidate_pool = _prune_pool(pool_checkpoints, args.pool_keep_every)
+        if args.pool_max_size and len(candidate_pool) > args.pool_max_size and prev_log_path:
+            # Elague par faiblesse (win-rate le plus haut = le moins coriace, mesure lors du
+            # dernier segment reellement tourne) jusqu'au plafond -- jamais le tout dernier
+            # ajoute (candidate_pool[-1], cf. _prune_pool) qui reste toujours garde.
+            winrates = _parse_final_winrates(prev_log_path)
+            most_recent = candidate_pool[-1]
+            removable = sorted((c for c in candidate_pool if c != most_recent),
+                                key=lambda c: winrates.get(c, 0.5), reverse=True)
+            n_to_drop = len(candidate_pool) - args.pool_max_size
+            dropped = set(removable[:n_to_drop])
+            candidate_pool = [c for c in candidate_pool if c not in dropped]
+        pruned_pool = candidate_pool
         opponent = ','.join(['heuristic'] + pruned_pool)
         seed = args.seed_start + seg - 1
         seg_ckpt_dir = os.path.join(args.out_dir, f'seg_{global_end}_checkpoints')
@@ -149,6 +192,7 @@ def main():
         print(f'  segment {seg} termine en {elapsed:.0f}s, poids dans {ckpt_path}', flush=True)
 
         pool_checkpoints.append(ckpt_path)
+        prev_log_path = log_path
 
     print(f'Orchestration terminee : {n_segments} segments, pool final a {len(pool_checkpoints) + 1} '
           f'membres (heuristic + {len(pool_checkpoints)} snapshots).')
