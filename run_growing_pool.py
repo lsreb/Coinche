@@ -31,6 +31,23 @@ import sys
 import time
 
 
+def _prune_pool(pool_checkpoints, keep_every):
+    """Garde un checkpoint sur `keep_every` (par index de segment, 1-based),
+    plus toujours le plus recent -- reduit la dilution du budget PFSP par
+    adversaire a mesure que le pool grandit (mesure empiriquement le
+    2026-07-30 : le % de parties jouees contre le dernier ajoute est passe de
+    ~15% a ~8% entre 300k et 750k, en meme temps que le gain de force par
+    palier de 150k s'est effondre de ~+5 a +2). Le plus recent est toujours
+    garde meme s'il ne tombe pas sur le multiple, car c'est justement
+    l'adversaire le plus pertinent a apprendre a battre."""
+    if keep_every <= 1:
+        return list(pool_checkpoints)
+    pruned = [ckpt for i, ckpt in enumerate(pool_checkpoints, start=1) if i % keep_every == 0]
+    if pool_checkpoints and pool_checkpoints[-1] not in pruned:
+        pruned.append(pool_checkpoints[-1])
+    return pruned
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--total-episodes', type=int, default=500000)
@@ -66,6 +83,15 @@ def main():
                          help="Reprendre a partir de ce segment (1-based) si l'orchestration a deja "
                               "tourne partiellement -- suppose que les checkpoints des segments "
                               "precedents existent deja dans --out-dir.")
+    parser.add_argument('--pool-keep-every', type=int, default=1,
+                         help="Ne garde dans le pool d'ADVERSAIRES (--opponent de train.py) qu'un "
+                              "checkpoint sur N par index de segment, plus toujours le plus recent -- "
+                              "ex. 2 = multiples de 2*segment-episodes (typiquement 100k si "
+                              "segment-episodes=50000). Tous les checkpoints continuent d'etre generes "
+                              "et sauvegardes normalement (--out-dir garde l'historique complet) ; seul "
+                              "le sous-ensemble propose comme adversaire est reduit, pour limiter la "
+                              "dilution du budget PFSP par adversaire a mesure que le pool grandit "
+                              "(defaut 1 = tout garder, comportement inchange).")
     args = parser.parse_args()
 
     if args.total_episodes % args.segment_episodes != 0:
@@ -84,7 +110,8 @@ def main():
             continue
 
         load_path = args.init_load if seg == 1 else os.path.join(args.out_dir, f'seg_{offset}.pt')
-        opponent = ','.join(['heuristic'] + pool_checkpoints)
+        pruned_pool = _prune_pool(pool_checkpoints, args.pool_keep_every)
+        opponent = ','.join(['heuristic'] + pruned_pool)
         seed = args.seed_start + seg - 1
         seg_ckpt_dir = os.path.join(args.out_dir, f'seg_{global_end}_checkpoints')
 
@@ -111,7 +138,7 @@ def main():
         ]
         log_path = os.path.join(args.out_dir, f'seg_{global_end}.log')
         print(f'=== Segment {seg}/{n_segments} : episodes {offset + 1}-{global_end} '
-              f'(pool a {len(pool_checkpoints) + 1} membres) ===', flush=True)
+              f'(pool a {len(pruned_pool) + 1} membres, {len(pool_checkpoints)} disponibles) ===', flush=True)
         print('  pool:', opponent, flush=True)
         start = time.perf_counter()
         with open(log_path, 'w') as logf:
