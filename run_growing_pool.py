@@ -129,12 +129,22 @@ def main():
                               "_parse_final_winrates) -- le checkpoint lui-meme n'est jamais supprime du "
                               "disque, seulement exclu ou reintegre comme adversaire propose. Defaut aucun "
                               "plafond (comportement inchange).")
+    parser.add_argument('--pool-exclude', default='',
+                         help="Nombres d'episodes separes par des virgules (ex. '50000,150000,250000') a "
+                              "exclure MANUELLEMENT et DEFINITIVEMENT du pool d'adversaires -- traduits en "
+                              "chemins seg_<N>.pt relatifs a --out-dir. Contrairement a --pool-max-size "
+                              "(elagage adaptatif par win-rate, jamais permanent), une exclusion listee ici "
+                              "reste retiree pour toute la suite de l'orchestration, quel que soit le "
+                              "win-rate mesure par la suite. Applique avant --pool-keep-every/--pool-max-size.")
     args = parser.parse_args()
 
     if args.total_episodes % args.segment_episodes != 0:
         raise SystemExit("--total-episodes doit etre un multiple de --segment-episodes.")
     os.makedirs(args.out_dir, exist_ok=True)
     n_segments = args.total_episodes // args.segment_episodes
+
+    excluded = {os.path.join(args.out_dir, f'seg_{int(e.strip())}.pt')
+                for e in args.pool_exclude.split(',') if e.strip()}
 
     pool_checkpoints = []  # checkpoints finaux des segments precedents, dans l'ordre
     prev_log_path = None  # log du dernier segment reellement tourne (pour le win-rate final, cf. --pool-max-size)
@@ -149,7 +159,8 @@ def main():
             continue
 
         load_path = args.init_load if seg == 1 else os.path.join(args.out_dir, f'seg_{offset}.pt')
-        candidate_pool = _prune_pool(pool_checkpoints, args.pool_keep_every)
+        candidate_pool = [c for c in pool_checkpoints if c not in excluded]
+        candidate_pool = _prune_pool(candidate_pool, args.pool_keep_every)
         if args.pool_max_size and len(candidate_pool) > args.pool_max_size and prev_log_path:
             # Elague par faiblesse (win-rate le plus haut = le moins coriace, mesure lors du
             # dernier segment reellement tourne) jusqu'au plafond -- jamais le tout dernier
