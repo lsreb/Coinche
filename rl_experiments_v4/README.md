@@ -840,3 +840,35 @@ fix** (variation de ±10-15%, dans le bruit normal inter-runs). Confirme
 directement ce que l'evaluation d'impact du bug avait predit (cf. section
 precedente) : le bug etait largement inerte en pratique, la correction
 ne change pas l'histoire de cette lignee d'experiences.
+
+## Extension a 900k (segments 16-18) avec nouveaux reglages PFSP : gain toujours modeste
+
+Meme seed (40), `--start-segment 16` depuis `seg_750000.pt`, mais avec les
+nouveaux reglages discutes le meme jour : `--pfsp-temperature 0.05` (etait
+0.1), `--pfsp-explore-eps 0.01` (plancher d'exploration, nouveau), et
+`--pool-exclude 50000,150000,250000` (retire manuellement ces 3 segments
+precoces du pool d'adversaires). **`--pool-max-size` n'a PAS ete utilise
+cette fois** (oubli signale par l'utilisateur) -- le pool est reste a 15
+membres actifs (14 snapshots + heuristic), pas de plafond dur.
+
+Repartition PFSP verifiee (log de fin de segment, `PFSP picks total`) :
+l'ecart de tirage entre le plus facile (`heuristic`, ~1.4-2.4%) et le
+plus dur (~11-12%) est desormais bien plus large qu'avant (4-9% a 750k
+sans ces reglages) -- la temperature plus basse concentre bien plus fort,
+et le plancher empeche `heuristic` de descendre sous ~1.4%, proche du 1%
+vise.
+
+Round-robin (4 specs : heuristic, vanille, pool 750k, pool 900k,
+n=10000) : **tete-a-tete 900k bat 750k de +2.43** corrige -- quasiment
+identique au palier precedent (600k->750k, +2.08, obtenu SANS ces
+nouveaux reglages). Force moyenne toujours monotone (900k +19.81 > 750k
++17.47 > vanille -3.40 > heuristic -33.88).
+
+**Lecture honnete** : les nouveaux reglages PFSP (temperature/plancher/
+exclusion manuelle) n'ont pas mesurablement relance la progression --
+le gain reste du meme ordre que sans eux. Deux interpretations
+possibles, pas encore departagees : (1) le ralentissement est un vrai
+plafond structurel du pool a cette echelle, pas (seulement) un probleme
+de dilution PFSP ; (2) la combinaison testee est incomplete, puisque
+`--pool-max-size` (le plafond dur sur la taille du pool, cense avoir le
+plus d'impact direct sur la dilution) n'a pas ete active ce coup-ci.
