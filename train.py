@@ -80,9 +80,20 @@ class PFSPSampler:
     n'est recalculee que tous les `refresh_every` episodes (pas a chaque
     episode) pour rester lisible et stable ; entre deux recalculs le tirage
     utilise les poids figes du dernier recalcul. `picks` compte combien de
-    fois chaque adversaire a ete choisi, pour reporting (cf. `summary`)."""
+    fois chaque adversaire a ete choisi, pour reporting (cf. `summary`).
 
-    def __init__(self, pool, refresh_every=5000, temperature=1.0, ema_beta=0.98):
+    `explore_eps` (discussion du 2026-07-30) : plancher d'exploration --
+    melange le softmax avec un tirage uniforme
+    (`poids_final = (1-explore_eps)*softmax + explore_eps/N`), pour garantir
+    qu'aucun adversaire ne tombe sous `explore_eps/N` de probabilite meme a
+    temperature tres basse. Sans ca, une temperature agressive (ex. 0.05)
+    peut laisser un adversaire facile a moins de 1% des parties (calcule a
+    la main ce jour-la : un ecart de toughness de 0.20 avec temperature=0.05
+    donne exp(-4)=1.8%, soit ~0.2% une fois normalise sur 10 adversaires) --
+    au point de ne plus jamais s'entrainer contre lui. Defaut 0.0 = pas de
+    plancher, comportement inchange."""
+
+    def __init__(self, pool, refresh_every=5000, temperature=1.0, ema_beta=0.98, explore_eps=0.0):
         if not pool:
             raise ValueError('pool vide')
         self.names = [name for name, _ in pool]
@@ -90,6 +101,7 @@ class PFSPSampler:
         self.refresh_every = refresh_every
         self.temperature = max(temperature, 1e-6)
         self.ema_beta = ema_beta
+        self.explore_eps = explore_eps
         self.ema_winrate = {name: 0.5 for name in self.names}
         self.picks = {name: 0 for name in self.names}
         self._weights = [1.0 / len(self.names)] * len(self.names)
@@ -99,7 +111,8 @@ class PFSPSampler:
         m = max(toughness)  # stabilite numerique du softmax (invariance par decalage)
         exps = [math.exp((t - m) / self.temperature) for t in toughness]
         s = sum(exps)
-        self._weights = [e / s for e in exps]
+        n = len(self.names)
+        self._weights = [(1 - self.explore_eps) * (e / s) + self.explore_eps / n for e in exps]
 
     def choose(self, global_ep):
         if len(self.names) > 1 and (global_ep == 1 or global_ep % self.refresh_every == 0):
@@ -227,6 +240,11 @@ def main():
     parser.add_argument('--pfsp-ema-beta', type=float, default=0.98,
                          help="Coefficient de la moyenne mobile exponentielle du win-rate par adversaire "
                               "(PFSP) : plus proche de 1 = memoire plus longue.")
+    parser.add_argument('--pfsp-explore-eps', type=float, default=0.0,
+                         help="Plancher d'exploration PFSP (0 a 1) : melange le softmax avec un tirage "
+                              "uniforme, garantit qu'aucun adversaire ne tombe sous explore_eps/N de "
+                              "probabilite -- utile pour compenser une --pfsp-temperature agressive (cf. "
+                              "PFSPSampler). Defaut 0.0 = pas de plancher, comportement inchange.")
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--save', default=None, help="Chemin pour sauvegarder les poids en fin d'entrainement.")
     parser.add_argument('--load', default=None, help='Chemin pour reprendre depuis des poids sauvegardes.')
@@ -255,7 +273,8 @@ def main():
     net_cls = CardNetBig if args.architecture == 'big' else CardNet
     opponent_pool = build_opponent_pool(args.opponent, net_cls=net_cls)
     sampler = PFSPSampler(opponent_pool, refresh_every=args.pfsp_refresh_every,
-                           temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
+                           temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta,
+                           explore_eps=args.pfsp_explore_eps) if args.pfsp else None
 
     policy = NeuralPolicy(lr=args.lr, entropy_beta=args.entropy_beta, net_cls=net_cls)
     if args.load:

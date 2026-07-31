@@ -70,6 +70,10 @@ def main():
     parser.add_argument('--pfsp-refresh-every', type=int, default=1000)
     parser.add_argument('--pfsp-temperature', type=float, default=0.1)
     parser.add_argument('--pfsp-ema-beta', type=float, default=0.98)
+    parser.add_argument('--pfsp-explore-eps', type=float, default=0.0,
+                         help="Plancher d'exploration PFSP (cf. train.py PFSPSampler, discussion du "
+                              "2026-07-30) : garantit qu'aucun adversaire ne tombe sous explore_eps/N de "
+                              "probabilite -- compagnon recommande d'une --pfsp-temperature agressive.")
     parser.add_argument('--eval-every', type=int, default=2000)
     parser.add_argument('--eval-games', type=int, default=500)
     parser.add_argument('--checkpoint-every', type=int, default=2000)
@@ -110,6 +114,7 @@ def main():
             '--pfsp-refresh-every', str(args.pfsp_refresh_every),
             '--pfsp-temperature', str(args.pfsp_temperature),
             '--pfsp-ema-beta', str(args.pfsp_ema_beta),
+            '--pfsp-explore-eps', str(args.pfsp_explore_eps),
             '--episodes', str(args.segment_episodes),
             '--episode-offset', str(offset),
             '--batch-episodes', str(args.batch_episodes),

@@ -88,8 +88,16 @@ def main():
                               "architecture (le pool d'adversaires en depend aussi, cf. "
                               "train.py build_opponent_pool).")
     parser.add_argument('--pfsp-refresh-every', type=int, default=1000)
-    parser.add_argument('--pfsp-temperature', type=float, default=0.1)
+    parser.add_argument('--pfsp-temperature', type=float, default=0.05,
+                         help="Discussion du 2026-07-30 : baisse de 0.1 a 0.05 pour biaiser plus fort vers "
+                              "l'adversaire le plus coriace et accelerer l'apprentissage contre lui -- "
+                              "combiner avec --pfsp-explore-eps (sinon un adversaire facile peut tomber a "
+                              "moins de 1% des parties, calcule le meme jour).")
     parser.add_argument('--pfsp-ema-beta', type=float, default=0.98)
+    parser.add_argument('--pfsp-explore-eps', type=float, default=0.01,
+                         help="Plancher d'exploration PFSP (cf. train.py PFSPSampler) : garantit qu'aucun "
+                              "adversaire ne tombe sous explore_eps/N de probabilite, compagnon obligatoire "
+                              "d'une --pfsp-temperature agressive comme 0.05 (defaut ici).")
     parser.add_argument('--eval-every', type=int, default=2000)
     parser.add_argument('--eval-games', type=int, default=500)
     parser.add_argument('--checkpoint-every', type=int, default=2000)
@@ -166,6 +174,7 @@ def main():
             '--pfsp-refresh-every', str(args.pfsp_refresh_every),
             '--pfsp-temperature', str(args.pfsp_temperature),
             '--pfsp-ema-beta', str(args.pfsp_ema_beta),
+            '--pfsp-explore-eps', str(args.pfsp_explore_eps),
             '--episodes', str(args.segment_episodes),
             '--episode-offset', str(offset),
             '--lr', str(args.lr),

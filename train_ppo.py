@@ -679,6 +679,8 @@ def main():
     parser.add_argument('--pfsp-refresh-every', type=int, default=5000)
     parser.add_argument('--pfsp-temperature', type=float, default=1.0)
     parser.add_argument('--pfsp-ema-beta', type=float, default=0.98)
+    parser.add_argument('--pfsp-explore-eps', type=float, default=0.0,
+                         help='Meme semantique que train.py --pfsp-explore-eps (plancher d\'exploration PFSP).')
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--save', default=None, help="Chemin pour sauvegarder les poids en fin d'entrainement.")
     parser.add_argument('--load', default=None, help='Chemin pour reprendre la policy depuis des poids sauvegardes.')
@@ -724,7 +726,8 @@ def main():
         net_cls = CardNetBig if args.architecture == 'big' else CardNet
     opponent_pool = build_opponent_pool(args.opponent, net_cls=net_cls)
     sampler = PFSPSampler(opponent_pool, refresh_every=args.pfsp_refresh_every,
-                           temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta) if args.pfsp else None
+                           temperature=args.pfsp_temperature, ema_beta=args.pfsp_ema_beta,
+                           explore_eps=args.pfsp_explore_eps) if args.pfsp else None
 
     if args.architecture in shared_family:
         if args.architecture == 'shared_aux':
