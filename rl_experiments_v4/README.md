@@ -808,3 +808,35 @@ apres 3 paliers consecutifs de progression reelle (300k->450k->600k->750k).
 **A faire si on veut trancher** : au moins un palier de plus (900k) pour
 voir si l'ecart continue a se retrecir jusqu'a devenir nul, ou s'il se
 stabilise a un petit gain positif residuel.
+
+## Re-verification post-fix TA : les round-robins 300k/450k/600k tiennent (par curiosite)
+
+Les round-robins 300k-vs-450k et 450k-vs-600k plus haut ont ete calcules
+AVANT le fix du bug `legal_moves()` a TA (corrige seulement au moment de
+la partie interactive, entre les extensions 600k et 750k) -- seul le
+round-robin 600k-vs-750k a tourne sous le moteur corrige. Refait ici les
+3 checkpoints ensemble (heuristic, vanille, 300k, 450k, 600k, n=10000)
+sous le moteur corrige, par curiosite, pour voir si le fix change quoi
+que ce soit.
+
+| Comparaison | Avant le fix | Apres le fix |
+|---|---|---|
+| 450k bat 300k | +5.08 | +4.74 |
+| 600k bat 450k | +5.30 | +6.10 |
+| 600k bat 300k | (jamais mesure directement) | +10.43 |
+
+Force moyenne (contre les 4 autres, moteur corrige) :
+
+| | force moyenne |
+|---|---|
+| Pool, 600k | +17.48 |
+| Pool, 450k | +9.29 |
+| Pool, 300k | +6.58 |
+| Vanille (REINFORCE simple) | -2.40 |
+| Heuristic | -30.96 |
+
+**Classement parfaitement monotone, ecarts quasi identiques a avant le
+fix** (variation de ±10-15%, dans le bruit normal inter-runs). Confirme
+directement ce que l'evaluation d'impact du bug avait predit (cf. section
+precedente) : le bug etait largement inerte en pratique, la correction
+ne change pas l'histoire de cette lignee d'experiences.

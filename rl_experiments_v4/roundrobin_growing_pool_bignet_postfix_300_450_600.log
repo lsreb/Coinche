@@ -1,0 +1,28 @@
+heuristic                                               vs rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt  avg= -22.66  win_rate= 45.4%
+heuristic                                               vs rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  avg= -27.50  win_rate= 44.5%
+heuristic                                               vs rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt  avg= -26.49  win_rate= 44.7%
+heuristic                                               vs rl_experiments_v4/exp_growing_pool_bignet/seg_600000.pt  avg= -32.01  win_rate= 43.4%
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt vs heuristic                                                avg= +31.38  win_rate= 56.3%
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  avg=  -5.60  win_rate= 49.0%
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt  avg=  -6.34  win_rate= 48.8%
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_600000.pt  avg= -14.39  win_rate= 47.1%
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt vs heuristic                                                avg= +35.50  win_rate= 57.1%
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt vs rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt  avg= +14.40  win_rate= 52.9%
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt  avg=  -1.72  win_rate= 49.7%
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_600000.pt  avg=  -7.29  win_rate= 48.5%
+rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt vs heuristic                                                avg= +32.31  win_rate= 56.6%
+rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt vs rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt  avg= +11.92  win_rate= 52.4%
+rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  avg=  +7.75  win_rate= 51.6%
+rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_600000.pt  avg=  -3.51  win_rate= 49.3%
+rl_experiments_v4/exp_growing_pool_bignet/seg_600000.pt vs heuristic                                                avg= +39.80  win_rate= 58.2%
+rl_experiments_v4/exp_growing_pool_bignet/seg_600000.pt vs rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt  avg= +20.56  win_rate= 54.2%
+rl_experiments_v4/exp_growing_pool_bignet/seg_600000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt  avg= +13.57  win_rate= 52.8%
+rl_experiments_v4/exp_growing_pool_bignet/seg_600000.pt vs rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt  avg=  +8.68  win_rate= 51.8%
+
+Resume round-robin (memes 10000 donnes fixees pour tous les appariements, seed=42) :
+                                                                    heuristic  /reinforce_100000.pt  bignet/seg_300000.pt  bignet/seg_450000.pt  bignet/seg_600000.pt
+heuristic                                                                  --                -22.66                -27.50                -26.49                -32.01
+rl_experiments_v4/exp_reinforce_bignet_ent02_lr3e-5_seed20/reinforce_100000.pt                +31.38                    --                 -5.60                 -6.34                -14.39
+rl_experiments_v4/exp_growing_pool_bignet/seg_300000.pt                +35.50                +14.40                    --                 -1.72                 -7.29
+rl_experiments_v4/exp_growing_pool_bignet/seg_450000.pt                +32.31                +11.92                 +7.75                    --                 -3.51
+rl_experiments_v4/exp_growing_pool_bignet/seg_600000.pt                +39.80                +20.56                +13.57                 +8.68                    --
