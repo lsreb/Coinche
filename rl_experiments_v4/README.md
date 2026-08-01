@@ -872,3 +872,35 @@ plafond structurel du pool a cette echelle, pas (seulement) un probleme
 de dilution PFSP ; (2) la combinaison testee est incomplete, puisque
 `--pool-max-size` (le plafond dur sur la taille du pool, cense avoir le
 plus d'impact direct sur la dilution) n'a pas ete active ce coup-ci.
+
+## Extension a 1050k (segments 19-21) avec `--pool-max-size 8` : le gain rebondit nettement
+
+Meme seed (40), `--start-segment 19` depuis `seg_900000.pt`, memes
+`--pfsp-temperature 0.05`/`--pfsp-explore-eps 0.01` qu'avant, mais cette
+fois **avec** `--pool-max-size 8` (plus `--pool-exclude` etendu a
+`50000,100000,150000,250000`, sur suggestion de l'utilisateur -- retirer
+aussi `seg_100000` du pool de depart). Pool de depart du segment 19
+calcule a partir des win-rates mesures au segment precedent : `200000,
+350000, 450000, 550000, 600000, 800000, 850000, 900000` + heuristic (8
++ 1, exactement le plafond demande) -- notamment PAS un tri par
+anciennete : `650000`/`750000` (recents mais devenus faciles, wr=0.60-
+0.66) ecartes au profit de `100000`/`200000` (plus anciens mais encore
+coriaces, wr~0.53) des le calcul initial. Le pool continue ensuite a
+etre re-elague par faiblesse a chaque nouveau segment (toujours 8+1,
+composition qui evolue). 3 segments sains (2123-2200s chacun).
+
+Round-robin (4 specs : heuristic, vanille, pool 900k, pool 1050k,
+n=10000) : **tete-a-tete 1050k bat 900k de +4.28** corrige -- plus du
+double du palier precedent (750k->900k, +2.43, SANS `--pool-max-size`),
+et de retour dans la fourchette des paliers "sains" d'avant le
+ralentissement (+4.74, +6.10). Force moyenne : 1050k +21.47 > 900k
++17.57 > vanille -4.23 > heuristic -34.81.
+
+**Lecture (encore un seul point de donnees, prudence)** : ca penche
+assez clairement en faveur de l'hypothese "dilution PFSP" plutot que
+"plafond structurel" -- plafonner le pool actif a 8 membres (au lieu de
+le laisser grandir sans limite, comme aux paliers precedents) semble
+avoir reellement relance la progression, plutot que de simplement
+mieux cibler un pool deja trop dilue via la seule temperature/le
+plancher (essaye seul au palier precedent, sans effet). A confirmer sur
+un palier de plus avant de conclure definitivement.
