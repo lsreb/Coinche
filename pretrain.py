@@ -1,10 +1,10 @@
-"""Pre-entraine un CardNet par imitation supervisee de HeuristicPlayer, avant le
-fine-tuning REINFORCE (train.py --load). Simule des donnes heuristique x4 (4
-sieges, attaque et defense confondues) pour collecter des paires (etat, carte
-choisie), puis minimise l'entropie croisee jusqu'a convergence -- volontairement
-sans early-stopping : l'exploration necessaire au REINFORCE est reintroduite
-ensuite via le bonus d'entropie de NeuralPolicy (cf. remarques_rl.md point 4),
-pas en sous-entrainant ici.
+"""Pretrains a CardNet by supervised imitation of HeuristicPlayer, before
+REINFORCE fine-tuning (train.py --load). Simulates heuristic x4 donnes (4
+seats, attack and defense combined) to collect (state, chosen card) pairs,
+then minimizes cross-entropy to convergence -- deliberately without
+early-stopping: the exploration REINFORCE needs is reintroduced afterward via
+NeuralPolicy's entropy bonus (cf. remarques_rl.md point 4), not by
+under-training here.
 
 Usage:
     python pretrain.py --games 3000 --epochs 20 --out imit.pt
@@ -25,9 +25,9 @@ except Exception:
 
 
 class RecordingHeuristicPlayer(HeuristicPlayer):
-    """Joue exactement comme HeuristicPlayer (aucune logique dupliquee) ; capture
-    juste (etat, carte choisie, coups legaux) a chaque decision, dans une liste
-    partagee entre les 4 sieges d'une meme donne."""
+    """Plays exactly like HeuristicPlayer (no duplicated logic); just
+    captures (state, chosen card, legal moves) at each decision, into a
+    list shared between the 4 seats of the same donne."""
     def __init__(self, name, dataset, ablate_points=False):
         super().__init__(name)
         self.dataset = dataset
@@ -58,8 +58,8 @@ def collect_dataset(n_games, seed=None, ablate_points=False):
         engine.run_auction()
         engine.play()
     elapsed = time.perf_counter() - start
-    print(f'{n_games} donnes simulees en {elapsed:.1f}s -> {len(dataset)} exemples '
-          f'({len(dataset) / n_games:.1f} par donne)')
+    print(f'{n_games} donnes simulated in {elapsed:.1f}s -> {len(dataset)} examples '
+          f'({len(dataset) / n_games:.1f} per donne)')
     return dataset
 
 
@@ -98,26 +98,28 @@ def train_supervised(dataset, epochs, lr, batch_size, device='cpu', net_cls=Card
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--games', type=int, default=3000,
-                         help="Nombre de donnes HeuristicPlayer x4 a simuler pour collecter les exemples.")
+                         help="Number of HeuristicPlayer x4 donnes to simulate to collect examples.")
     parser.add_argument('--epochs', type=int, default=20,
-                         help="Nombre d'epochs d'entrainement supervise (jusqu'a convergence, voir docstring).")
+                         help="Number of supervised training epochs (to convergence, see docstring).")
     parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--seed', type=int, default=None)
-    parser.add_argument('--out', default='imit.pt', help='Chemin de sauvegarde des poids pre-entraines.')
+    parser.add_argument('--out', default='imit.pt', help='Path to save the pretrained weights.')
     parser.add_argument('--ablate-points-so-far', action='store_true',
-                         help="Etude d'ablation : force a zero le bloc `_points_so_far` de "
-                              "encode_state (points de plis deja engranges par camp), pour "
-                              "pre-entrainer un imit.pt qui n'a jamais vu cette feature.")
+                         help="Ablation study: forces encode_state's "
+                              "`_points_so_far` block (trick points already "
+                              "banked per side) to zero, to pretrain an "
+                              "imit.pt that has never seen this feature.")
     parser.add_argument('--architecture', choices=['small', 'big'], default='small',
-                         help="'small' = CardNet (1 couche cachee de 128, defaut, config deja "
-                              "validee). 'big' = CardNetBig (128/128/64, GELU, remarques_rl.md "
-                              "point 6) -- checkpoint incompatible avec 'small', a charger avec "
-                              "train.py --architecture big.")
+                         help="'small' = CardNet (1 hidden layer of 128, "
+                              "default, already-validated config). 'big' = "
+                              "CardNetBig (128/128/64, GELU, remarques_rl.md "
+                              "point 6) -- checkpoint incompatible with "
+                              "'small', load with train.py --architecture big.")
     args = parser.parse_args()
 
     if torch is None:
-        raise SystemExit("torch est requis pour pre-entrainer un CardNet (voir requirements.txt).")
+        raise SystemExit("torch is required to pretrain a CardNet (see requirements.txt).")
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -128,7 +130,7 @@ def main():
     net = train_supervised(dataset, epochs=args.epochs, lr=args.lr, batch_size=args.batch_size, net_cls=net_cls)
 
     torch.save(net.state_dict(), args.out)
-    print('poids pre-entraines sauvegardes dans', args.out)
+    print('pretrained weights saved to', args.out)
 
 
 if __name__ == '__main__':

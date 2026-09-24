@@ -27,10 +27,11 @@ def build_players(strategies):
 
 
 def ta_points_to_normal_scale(raw_points):
-    """A TA il y a 248 points en tout et pas de der, au lieu de 162 : la correspondance
-    120-135-150-165-180-195-210-225-240 <-> 80-90-100-110-120-130-140-150-160
-    (regles_coinche.md §5) donne 15 points TA pour 10 points normaux. Le capot (250)
-    n'est pas concerne par cette conversion."""
+    """In TA there are 248 points total and no last-trick bonus, instead of
+    162: the mapping 120-135-150-165-180-195-210-225-240 <->
+    80-90-100-110-120-130-140-150-160 (regles_coinche.md §5) gives 15 TA
+    points for 10 normal points. The capot (250) isn't affected by this
+    conversion."""
     if raw_points >= 250:
         return raw_points
     return round(80 + (raw_points - 120) * (10 / 15))
@@ -72,8 +73,8 @@ def main():
     points = team_points[taker_team]
     if contract.trump == 'TA':
         points = ta_points_to_normal_scale(points)
-    print(f"Contrat demande: {level}{contract.trump} (preneur: seat {history['contract']['taker']})")
-    print('Points marques par l\'equipe preneuse:', points)
+    print(f"Contract: {level}{contract.trump} (taker: seat {history['contract']['taker']})")
+    print('Points scored by the taking team:', points)
     print('history saved to', args.out)
 
 

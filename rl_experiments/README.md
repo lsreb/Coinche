@@ -1,196 +1,195 @@
-# Checkpoints RL - point 3/4 de remarques_rl.md
+# RL checkpoints - point 3/4 of remarques_rl.md
 
-`imit.pt` : policy `CardNet` pre-entrainee par imitation supervisee de
-`HeuristicPlayer` (`pretrain.py --games 5000 --epochs 20 --seed 0`), point de
-depart commun a toutes les experiences ci-dessous.
+`imit.pt`: `CardNet` policy pretrained by supervised imitation of
+`HeuristicPlayer` (`pretrain.py --games 5000 --epochs 20 --seed 0`), the
+common starting point for every experiment below.
 
-**Note methodologique (corrigee)** : jusqu'a la comparaison `exp_pool_350k`
-ci-dessous, `eval_policy.py` reseedait `random` avant chaque checkpoint puis
-laissait chaque partie se dealer fraichement, en supposant que ca suffisait a
-donner les memes donnes a tous les checkpoints. Faux au-dela des tout premiers
-essais : des qu'un checkpoint joue une carte differente d'un autre,
-`HeuristicPlayer._choose_defausse_suit()` (seul point d'alea de
-`HeuristicPlayer` en jeu, hors encheres) consomme un nombre different de
-tirages `random`, et tout le `random` global part sur une trajectoire
-differente pour le reste de la boucle -- verifie empiriquement : mains
-divergentes des la 4e partie sur 100. Toutes les tables `eval_avg`/`win_rate`
-**avant** la section `exp_pool_350k` viennent donc d'une comparaison en
-realite non appariee (plus bruitee que ce qui est ecrit a l'epoque), meme si
-le classement qualitatif reste corrobore par la comparaison finale corrigee.
-`eval_policy.py` genere maintenant les N donnes une seule fois (independamment
-de tout checkpoint, en filtrant celles qui provoqueraient une redonne interne
-silencieuse, cf. game.py:139-143) puis les rejoue a l'identique via
-`deal(hands=...)` pour chaque checkpoint -- une vraie comparaison appariee.
+**Methodological note (corrected)**: up through the `exp_pool_350k`
+comparison below, `eval_policy.py` reseeded `random` before every checkpoint
+then let each game deal freshly, assuming that was enough to give every
+checkpoint the same donnes. Wrong beyond the very first few games: as soon
+as one checkpoint plays a different card from another,
+`HeuristicPlayer._choose_defausse_suit()` (`HeuristicPlayer`'s only source
+of randomness during play, outside bidding) consumes a different number of
+`random` draws, and the whole global `random` state goes off on a different
+trajectory for the rest of the loop -- verified empirically: hands diverged
+as early as game 4 out of 100. Every `eval_avg`/`win_rate` table **before**
+the `exp_pool_350k` section therefore comes from a comparison that wasn't
+actually paired (noisier than what's written at the time), even though the
+qualitative ranking is still corroborated by the corrected final comparison.
+`eval_policy.py` now generates the N donnes once (independently of any
+checkpoint, filtering out those that would trigger a silent internal
+redeal, cf. game.py:139-143) then replays them identically via
+`deal(hands=...)` for each checkpoint -- a real paired comparison.
 
-## Decroissance du bonus d'entropie (premiere serie)
+## Entropy bonus decay (first series)
 
-Deux runs de fine-tuning REINFORCE (`train.py --load imit.pt --episodes 100000
---eval-every 5000 --eval-games 500 --entropy-beta 0.02 --seed 5`, contre-factuel
-heuristique actif par defaut, cf. point 3), ne differant que par le schema de
-decroissance du bonus d'entropie (`--entropy-decay`) :
+Two REINFORCE fine-tuning runs (`train.py --load imit.pt --episodes 100000
+--eval-every 5000 --eval-games 500 --entropy-beta 0.02 --seed 5`,
+counterfactual against heuristic active by default, cf. point 3), differing
+only in the entropy bonus decay schedule (`--entropy-decay`):
 
-- `exp_invsqrt/` : decroissance en `beta/sqrt(episode)`.
-- `exp_inv/` : decroissance en `beta/episode`.
+- `exp_invsqrt/`: decay as `beta/sqrt(episode)`.
+- `exp_inv/`: decay as `beta/episode`.
 
-(`exp_none/`, la variante a entropie constante, a ete abandonnee : moins
-concluante que les deux ci-dessus et redondante avec `exp_lowlr_lowent`
-ci-dessous, qui isole mieux l'effet de l'entropie constante via l'ablation.)
+(`exp_none/`, the constant-entropy variant, was dropped: less conclusive
+than the two above and redundant with `exp_lowlr_lowent` below, which
+isolates the constant-entropy effect better via the ablation.)
 
-Chaque dossier contient un checkpoint tous les 5000 episodes
-(`ckpt_ep5000.pt` ... `ckpt_ep100000.pt`), `final.pt` (identique a
-`ckpt_ep100000.pt`), et `log.txt` (sortie complete de l'entrainement : reward
-brut, reward contre-factuel, eval gloutonne, taux de victoire, beta effectif).
+Each directory contains a checkpoint every 5000 episodes
+(`ckpt_ep5000.pt` ... `ckpt_ep100000.pt`), `final.pt` (identical to
+`ckpt_ep100000.pt`), and `log.txt` (the full training output: raw reward,
+counterfactual reward, greedy eval, win rate, effective beta).
 
-Constat : aucune des deux n'a depasse la performance de `imit.pt` seul sur une
-evaluation robuste (1500 parties) ; les deux oscillent sans converger
-clairement sur 100k episodes. Le detail chiffre est dans `log.txt` de chaque
-dossier. Cause identifiee ensuite (voir plus bas) : `lr=1e-3` est trop eleve
-pour du fine-tuning post-imitation, independamment du schema d'entropie.
+Finding: neither run beat `imit.pt` alone on a robust evaluation (1500
+games); both oscillate without clearly converging over 100k episodes. The
+numeric detail is in each directory's `log.txt`. Cause identified later
+(see below): `lr=1e-3` is too high for post-imitation fine-tuning,
+independently of the entropy schedule.
 
-## `exp_lowlr_lowent/` : lr et entropie reduits d'un facteur 10 (retenu)
+## `exp_lowlr_lowent/`: lr and entropy reduced by a factor of 10 (kept)
 
-Meme depart (`imit.pt`), mais `lr=1e-4` et `entropy-beta=0.002` (constant,
-`--entropy-decay none`), pousse a 100k episodes en 3 runs sequentiels
-(episodes 1-20000 seed=5, 20001-50000 seed=6, 50001-100000 seed=7, chaines via
-`--load`/`--save` et `--episode-offset` pour une numerotation absolue coherente
-et des donnes differentes a chaque reprise). Seuls `final.pt` (poids a 100k) et
-`log.txt` (historique complet des 3 runs) sont gardes ; les checkpoints
-intermediaires ont ete supprimes apres analyse.
+Same starting point (`imit.pt`), but `lr=1e-4` and `entropy-beta=0.002`
+(constant, `--entropy-decay none`), pushed to 100k episodes over 3
+sequential runs (episodes 1-20000 seed=5, 20001-50000 seed=6, 50001-100000
+seed=7, chained via `--load`/`--save` and `--episode-offset` for consistent
+absolute numbering and different donnes on each resume). Only `final.pt`
+(the weights at 100k) and `log.txt` (the full history of the 3 runs) are
+kept; the intermediate checkpoints were deleted after analysis.
 
-Ablation isolant l'effet de chaque facteur (2x2, 20k episodes, seed=5,
-comparaison sur les memes 1500 donnes via `eval_policy.py --games 1500` --
-ancienne methode non appariee, cf. note methodologique en tete de fichier ;
-l'ecart lr vs entropie observe ici est trop large pour etre remis en cause,
-mais les valeurs precises sont a prendre avec plus de marge que ce qui est
-ecrit) :
+Ablation isolating each factor's effect (2x2, 20k episodes, seed=5,
+compared on the same 1500 donnes via `eval_policy.py --games 1500` -- the
+old, unpaired method, cf. the methodological note at the top of the file;
+the lr-vs-entropy gap seen here is too large to be called into question,
+but the precise values should be taken with more caution than what's
+written):
 
-|                    | beta=0.02 (haut) | beta=0.002 (bas) |
+|                    | beta=0.02 (high) | beta=0.002 (low) |
 |--------------------|-----------------:|------------------:|
-| **lr=1e-3 (haut)** | -17.51 (exp_none, supprime) | -23.28 |
-| **lr=1e-4 (bas)**  | +0.74            | **+6.20**          |
+| **lr=1e-3 (high)** | -17.51 (exp_none, deleted) | -23.28 |
+| **lr=1e-4 (low)**  | +0.74            | **+6.20**          |
 
-(valeurs : `eval_avg` sur 1500 parties vs `HeuristicPlayer`, memes donnes pour
-toutes les cases ; repere miroir heuristique-vs-heuristique = +1.38.)
+(values: `eval_avg` over 1500 games vs `HeuristicPlayer`, same donnes for
+every cell; heuristic-vs-heuristic mirror benchmark = +1.38.)
 
-=> c'est la reduction du `lr` qui porte l'essentiel du gain ; reduire
-`entropy-beta` seul (lr reste a 1e-3) aggrave meme le resultat. Reduire les
-deux ensemble (`exp_lowlr_lowent`) est la meilleure combinaison trouvee.
+=> reducing `lr` carries essentially all of the gain; reducing
+`entropy-beta` alone (lr stays at 1e-3) even makes the result worse.
+Reducing both together (`exp_lowlr_lowent`) is the best combination found.
 
-Progression sur les 100k episodes (`eval_policy.py`, 1500 parties, memes
-donnes) : ep20000 = +6.20, ep50000 = +5.13, ep100000 (`final.pt`) = +5.79 —
-plateau atteint des les premiers 20k episodes, pas de gain net supplementaire
-sur les 80k episodes suivants malgre le budget investi.
+Progress over the 100k episodes (`eval_policy.py`, 1500 games, same
+donnes): ep20000 = +6.20, ep50000 = +5.13, ep100000 (`final.pt`) = +5.79 —
+a plateau reached within the first 20k episodes, no further net gain over
+the following 80k episodes despite the budget spent.
 
-## `exp_selfplay_frozen100k/` : self-play contre une copie figee (retenu)
+## `exp_selfplay_frozen100k/`: self-play against a frozen copy (kept)
 
-Le plateau de `exp_lowlr_lowent` ci-dessus a suggere que `HeuristicPlayer`
-comme adversaire fixe ne "pousse" plus la policy une fois qu'elle le bat deja
-en moyenne. Test : reprendre l'entrainement a partir de
-`exp_lowlr_lowent/final.pt` (sieges 0/2), mais face a une **copie figee** du
-meme checkpoint aux sieges 1/3 (`train.py --opponent`, jeu glouton, jamais
-mise a jour) plutot que face a `HeuristicPlayer`. Le contre-factuel du point 3
-suit desormais lui aussi l'adversaire reel (donc la copie figee aux 4 sieges,
-plus Heuristic -- cf. docstring de `counterfactual_reward` dans `train.py`),
-pour rester une reference coherente avec ce qui est reellement joue.
+The plateau in `exp_lowlr_lowent` above suggested that `HeuristicPlayer` as
+a fixed opponent stops "pushing" the policy once it already beats it on
+average. Test: resume training from `exp_lowlr_lowent/final.pt` (seats
+0/2), but against a **frozen copy** of the same checkpoint at seats 1/3
+(`train.py --opponent`, greedy play, never updated) instead of against
+`HeuristicPlayer`. Point 3's counterfactual now also follows the real
+opponent (so the frozen copy at all 4 seats, instead of Heuristic -- cf.
+`counterfactual_reward`'s docstring in `train.py`), to stay a reference
+consistent with what's actually being played.
 
-100k episodes de plus (numerotation absolue 100001-200000, `--episode-offset
-100000`, seed=8, memes `lr=1e-4`/`entropy-beta=0.002` constant que
-`exp_lowlr_lowent`). Seuls `final.pt` et `log.txt` sont gardes (memes
-conventions que ci-dessus). Note : dans `log.txt`, `eval_avg`/`win_rate`
-mesurent la progression **contre la copie figee** (proche de 50%, attendu vu
-que les deux partent des memes poids), pas contre `HeuristicPlayer`.
+100k more episodes (absolute numbering 100001-200000, `--episode-offset
+100000`, seed=8, same constant `lr=1e-4`/`entropy-beta=0.002` as
+`exp_lowlr_lowent`). Only `final.pt` and `log.txt` are kept (same
+conventions as above). Note: in `log.txt`, `eval_avg`/`win_rate` measure
+progress **against the frozen copy** (close to 50%, expected since both
+start from the same weights), not against `HeuristicPlayer`.
 
-Resultat, mesure sur la vraie reference (`eval_policy.py --games 1500` vs
-`HeuristicPlayer`, ancienne methode non appariee -- cf. note methodologique en
-tete de fichier) :
+Result, measured on the real reference (`eval_policy.py --games 1500` vs
+`HeuristicPlayer`, the old, unpaired method -- cf. the methodological note
+at the top of the file):
 
 | Policy | eval_avg(1500) | win_rate |
 |---|---:|---:|
 | `exp_selfplay_frozen100k/final.pt` | **+9.76** | **53.6%** |
-| `exp_lowlr_lowent/final.pt` (point de depart) | +5.79 | 50.7% |
-| `heuristic` (miroir) | +1.38 | 49.7% |
+| `exp_lowlr_lowent/final.pt` (starting point) | +5.79 | 50.7% |
+| `heuristic` (mirror) | +1.38 | 49.7% |
 | `imit.pt` | -3.54 | 49.7% |
 
-=> le self-play a fait progresser la policy au-dela du plateau observe contre
-`HeuristicPlayer` seul (+5.79 -> +9.76, quasiment double). Piste suivante
-naturelle : repeter l'operation (self-play contre une copie figee de
-`exp_selfplay_frozen100k/final.pt`) pour voir si le gain se reproduit ou si un
-nouveau plateau apparait.
+=> self-play pushed the policy past the plateau observed against
+`HeuristicPlayer` alone (+5.79 -> +9.76, almost double). Natural next step:
+repeat the operation (self-play against a frozen copy of
+`exp_selfplay_frozen100k/final.pt`) to see whether the gain reproduces or a
+new plateau appears.
 
-## `exp_selfplay_frozen150k/` : round 2 de self-play (point final retenu)
+## `exp_selfplay_frozen150k/`: self-play round 2 (final kept checkpoint)
 
-Meme recette, un round de plus : 50k episodes supplementaires (numerotation
-absolue 200001-250000, seed=9) a partir de `exp_selfplay_frozen100k/final.pt`
-(sieges 0/2), contre une copie figee **du meme checkpoint** aux sieges 1/3
-(`exp_selfplay_frozen100k/final.pt` reste necessaire comme adversaire figes de
-ce round et n'a pas ete supprime).
+Same recipe, one more round: 50k more episodes (absolute numbering
+200001-250000, seed=9) from `exp_selfplay_frozen100k/final.pt` (seats 0/2),
+against a frozen copy of **the same checkpoint** at seats 1/3
+(`exp_selfplay_frozen100k/final.pt` is still needed as this round's frozen
+opponent and hasn't been deleted).
 
-Contrairement au round 1, **pas de progression nette sur ce segment** : eval
-robuste (1500 parties vs `HeuristicPlayer`, memes donnes, ancienne methode non
-appariee -- cf. note methodologique en tete de fichier) ep200000=+9.76,
+Unlike round 1, **no clear progress over this segment**: robust eval (1500
+games vs `HeuristicPlayer`, same donnes, the old, unpaired method -- cf.
+the methodological note at the top of the file) ep200000=+9.76,
 ep210000=+8.49, ep220000=+6.33, ep230000=+15.34, ep240000=+4.23,
-ep250000(`final.pt`)=+5.78 -- oscillation sans tendance, le pic a ep230000
-s'est avere etre en grande partie du bruit d'evaluation (retombe a +8.71 sur
-un reeval a 10000 parties, contre +6.51 pour `final.pt` sur le meme
-echantillon -- ecart de ~2 points, sous l'erreur standard mesuree a ce n
-(ecart-type empirique du reward par donne = 124 points, soit SE~1.25 a
-n=10000 -- ce calcul de SE suppose un echantillon correctement apparie, ce qui
-n'etait pas encore le cas ici : l'ecart reel est probablement encore moins
-significatif que ce chiffre). Les deux checkpoints restent statistiquement
-indiscernables ; `final.pt` est garde comme point final car c'est l'arret
-naturel de l'entrainement, pas un choix cherry-picke sur l'eval.
+ep250000(`final.pt`)=+5.78 -- oscillation with no trend, the ep230000 spike
+turned out to be mostly evaluation noise (drops back to +8.71 on a re-eval
+at 10000 games, vs +6.51 for `final.pt` on the same sample -- a gap of ~2
+points, under the standard error measured at this n (empirical reward
+standard deviation per donne = 124 points, i.e. SE~1.25 at n=10000 -- this
+SE calculation assumes a correctly paired sample, which wasn't yet the case
+here: the real gap is probably even less significant than this figure).
+The two checkpoints remain statistically indistinguishable; `final.pt` is
+kept as the final checkpoint because it's the natural end of training, not
+a choice cherry-picked on the eval.
 
-Interpretation : un round de self-play contre une copie figee donne un vrai
-gain (round 1), mais continuer contre la **meme** copie figee au-dela ne
-pousse plus la policy plus loin -- probablement parce que l'adversaire fixe
-devient lui aussi "battu en moyenne" et cesse de fournir un gradient utile,
-comme observe avec `HeuristicPlayer` dans `exp_lowlr_lowent`. Piste suivante :
-rafraichir l'adversaire fige a chaque round (curriculum type fictitious
-self-play) plutot que de repeter un round contre le meme snapshot.
+Interpretation: one round of self-play against a frozen copy gives a real
+gain (round 1), but continuing against the **same** frozen copy beyond that
+no longer pushes the policy further -- probably because the fixed opponent
+also becomes "beaten on average" and stops providing a useful gradient, as
+observed with `HeuristicPlayer` in `exp_lowlr_lowent`. Next idea: refresh
+the frozen opponent every round (a fictitious-self-play-style curriculum)
+rather than repeating a round against the same snapshot.
 
-**Bilan de la lignee jusqu'ici** (`eval_policy.py --games 1500`, vs
-`HeuristicPlayer`, ancienne methode non appariee -- cf. note methodologique en
-tete de fichier) : `imit.pt` -3.54 -> `exp_lowlr_lowent` +5.79 ->
-`exp_selfplay_frozen100k` +9.76 -> `exp_selfplay_frozen150k` +5.78 (dans le
-bruit du round precedent, pas une regression averee vu la marge d'erreur).
-Voir la section `exp_pool_350k` ci-dessous pour le bilan complet avec la
-comparaison appariee corrigee.
+**Lineage summary so far** (`eval_policy.py --games 1500`, vs
+`HeuristicPlayer`, the old, unpaired method -- cf. the methodological note
+at the top of the file): `imit.pt` -3.54 -> `exp_lowlr_lowent` +5.79 ->
+`exp_selfplay_frozen100k` +9.76 -> `exp_selfplay_frozen150k` +5.78 (within
+the previous round's noise, not a confirmed regression given the margin of
+error). See the `exp_pool_350k` section below for the full summary with
+the corrected, paired comparison.
 
-## `exp_pool_350k/` : entrainement contre un pool d'adversaires (point final retenu)
+## `exp_pool_350k/`: training against a pool of opponents (final kept checkpoint)
 
-Le round 2 de self-play ci-dessus n'a pas progresse -- hypothese : une fois la
-policy meilleure en moyenne que son unique adversaire fixe, cet adversaire
-cesse de fournir un gradient utile (meme mecanisme que le plateau de
-`exp_lowlr_lowent` contre `HeuristicPlayer` seul). Test : au lieu d'un
-adversaire fixe unique, `train.py --opponent` tire desormais un adversaire au
-hasard **a chaque episode** parmi un pool (`heuristic,exp_selfplay_frozen100k
-/final.pt,exp_selfplay_frozen150k/final.pt`) ; le contre-factuel du point 3
-suit toujours l'adversaire tire cet episode-la (cf. `counterfactual_reward`
-dans `train.py`), pas un adversaire fixe different de ce qui est reellement
-joue. L'eval loggee pendant l'entrainement reste vs `HeuristicPlayer` par
-defaut (`evaluate()`), pour rester comparable aux runs precedents malgre le
-pool.
+Self-play round 2 above didn't progress -- hypothesis: once the policy is
+better on average than its single fixed opponent, that opponent stops
+providing a useful gradient (the same mechanism as the `exp_lowlr_lowent`
+plateau against `HeuristicPlayer` alone). Test: instead of a single fixed
+opponent, `train.py --opponent` now samples a random opponent **on every
+episode** from a pool (`heuristic,exp_selfplay_frozen100k
+/final.pt,exp_selfplay_frozen150k/final.pt`); point 3's counterfactual
+still follows whichever opponent was sampled that episode (cf.
+`counterfactual_reward` in `train.py`), not a fixed opponent different from
+what's actually being played. The eval logged during training stays vs
+`HeuristicPlayer` by default (`evaluate()`), to stay comparable to previous
+runs despite the pool.
 
-100k episodes (numerotation absolue 250001-350000, seed=10) a partir de
-`exp_selfplay_frozen150k/final.pt`. Seuls `final.pt` et `log.txt` sont gardes.
+100k episodes (absolute numbering 250001-350000, seed=10) from
+`exp_selfplay_frozen150k/final.pt`. Only `final.pt` and `log.txt` are kept.
 
-Resultat (`eval_policy.py --games 10000` vs `HeuristicPlayer`, **10000 donnes
-generees une seule fois et rejouees a l'identique pour chaque checkpoint** --
-premiere comparaison de cette lignee avec un vrai appariement, cf. note
-methodologique en tete de fichier) :
+Result (`eval_policy.py --games 10000` vs `HeuristicPlayer`, **10000 donnes
+generated once and replayed identically for every checkpoint** -- this
+lineage's first comparison with a real pairing, cf. the methodological note
+at the top of the file):
 
 | Policy | eval_avg(10000) | win_rate |
 |---|---:|---:|
 | `imit.pt` | -1.52 | 49.2% |
-| `heuristic` (miroir) | +3.49 | 50.8% |
+| `heuristic` (mirror) | +3.49 | 50.8% |
 | `exp_lowlr_lowent` | +5.83 | 51.5% |
 | `exp_selfplay_frozen100k` | +8.07 | 52.1% |
 | `exp_selfplay_frozen150k` | +8.68 | 52.9% |
 | **`exp_pool_350k/final.pt`** | **+10.43** | **53.0%** |
 
-=> toute la lignee progresse toujours de facon monotone une fois la
-comparaison correctement appariee, et le pool reste la meilleure etape depuis
-le debut. Le classement qualitatif obtenu avec l'ancienne methode (non
-appariee) est confirme ; seules les valeurs absolues different (nouveau tirage
-de donnes, filtrage different) et ne sont pas directement comparables aux
-tables des sections precedentes.
+=> the whole lineage still progresses monotonically once the comparison is
+correctly paired, and the pool remains the best step so far. The
+qualitative ranking obtained with the old (unpaired) method is confirmed;
+only the absolute values differ (new donne sample, different filtering)
+and aren't directly comparable to the tables in the earlier sections.

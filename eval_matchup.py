@@ -1,26 +1,24 @@
-"""Round-robin policy-vs-policy, contrairement a eval_policy.py qui ne compare
-qu'un checkpoint a la fois contre HeuristicPlayer. Sert a verifier si un
-checkpoint entraine en pool grandissant (self-play, run_growing_pool.py) est
-plus polyvalent qu'un checkpoint entraine seulement contre heuristic, meme si
-son eval_avg contre heuristic seul est plus bas (cf.
-rl_experiments_v3/README.md, section pool grandissant) -- eval_avg contre
-heuristic seul ne mesure que l'exploitation d'un adversaire fixe, pas la
-polyvalence face a d'autres styles de jeu.
+"""Round-robin policy-vs-policy, unlike eval_policy.py which only compares
+one checkpoint at a time against HeuristicPlayer. Used to check whether a
+checkpoint trained in a growing pool (self-play, run_growing_pool.py) is
+more versatile than a checkpoint trained only against heuristic, even if its
+eval_avg against heuristic alone is lower (cf. rl_experiments_v3/README.md,
+growing-pool section) -- eval_avg against heuristic alone only measures
+exploitation of a fixed opponent, not versatility against other playing styles.
 
-Reutilise generate_fixed_deals/evaluate_fixed de eval_policy.py (memes N
-donnes fixees pour tous les appariements, memes pieges deja corriges :
-redonne interne sur "tout le monde passe", divergence du random global).
+Reuses generate_fixed_deals/evaluate_fixed from eval_policy.py (same N fixed
+donnes for every matchup, same already-fixed pitfalls: internal redeal on
+"everyone passes", global random divergence).
 
-Chaque paire ordonnee (A, B) avec A != B est jouee : A aux sieges 0/2, B aux
-sieges 1/3, sur les memes N donnes. "heuristic" est un spec valide comme dans
-eval_policy.py.
+Every ordered pair (A, B) with A != B is played: A at seats 0/2, B at seats
+1/3, on the same N donnes. "heuristic" is a valid spec, as in eval_policy.py.
 
-Un spec peut aussi s'ecrire `architecture:chemin` (ex. `big:seg_300000.pt`,
-`shared:seg_300000.pt`) pour melanger plusieurs architectures dans le MEME
-round-robin (--architecture ne sert alors que de valeur par defaut pour les
-specs sans prefixe) -- necessaire pour comparer en tete-a-tete direct deux
-checkpoints d'architectures differentes (ex. pool grandissant CardNetBig vs
-pool grandissant tronc partage).
+A spec can also be written as `architecture:path` (e.g. `big:seg_300000.pt`,
+`shared:seg_300000.pt`) to mix several architectures in the SAME
+round-robin (--architecture then only serves as the default value for specs
+without an explicit prefix) -- needed to compare two checkpoints of
+different architectures head-to-head directly (e.g. growing-pool CardNetBig
+vs growing-pool shared trunk).
 
 Usage:
     python eval_matchup.py --games 3000 heuristic ckpt1.pt ckpt2.pt ckpt3.pt
@@ -37,9 +35,9 @@ ARCHITECTURES = ('small', 'big', 'shared', 'shared_aux', 'shared_deep')
 
 
 def parse_spec(raw, default_architecture):
-    """Un spec CLI est soit 'heuristic', soit `architecture:chemin` (prefixe
-    explicite), soit un chemin nu qui utilise `default_architecture`
-    (--architecture) -- retourne (architecture, chemin_ou_'heuristic')."""
+    """A CLI spec is either 'heuristic', or `architecture:path` (explicit
+    prefix), or a bare path that uses `default_architecture`
+    (--architecture) -- returns (architecture, path_or_'heuristic')."""
     if raw == 'heuristic':
         return default_architecture, 'heuristic'
     if ':' in raw:
@@ -50,9 +48,9 @@ def parse_spec(raw, default_architecture):
 
 
 def load_spec(path, architecture='small'):
-    """None pour 'heuristic' (pas de policy a charger), sinon une Policy
-    chargee et mise en mode glouton -- chargee une seule fois par spec,
-    reutilisee pour tous les appariements qui l'impliquent."""
+    """None for 'heuristic' (no policy to load), otherwise a Policy loaded
+    and set to greedy mode -- loaded once per spec, reused for every
+    matchup that involves it."""
     if path == 'heuristic':
         return None
     if architecture == 'shared_aux':
@@ -76,9 +74,9 @@ def make_player(path, policy, name):
 
 
 def matchup_factory(path_a, policy_a, path_b, policy_b):
-    """A aux sieges 0/2, B aux sieges 1/3 -- meme convention que eval_policy.py
-    (une seule policy par equipe, meme objet reutilise aux 2 sieges de l'equipe,
-    comme RLPlayer le permet deja partout ailleurs dans ce depot)."""
+    """A at seats 0/2, B at seats 1/3 -- same convention as eval_policy.py
+    (a single policy per team, the same object reused at both of the
+    team's seats, as RLPlayer already allows everywhere else in this repo)."""
     def factory():
         return [
             make_player(path_a, policy_a, 'A0'), make_player(path_b, policy_b, 'B1'),
@@ -89,23 +87,23 @@ def matchup_factory(path_a, policy_a, path_b, policy_b):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('specs', nargs='+', help='Checkpoints (ou "heuristic") a opposer deux a deux.')
-    parser.add_argument('--games', type=int, default=3000, help='Nombre de donnes par appariement.')
+    parser.add_argument('specs', nargs='+', help='Checkpoints (or "heuristic") to pit against each other.')
+    parser.add_argument('--games', type=int, default=3000, help='Number of donnes per matchup.')
     parser.add_argument('--seed', type=int, default=42,
-                         help='Seed pour generer les donnes fixes (une fois, partagees par tous les appariements).')
+                         help='Seed to generate the fixed donnes (once, shared by all matchups).')
     parser.add_argument('--architecture', choices=ARCHITECTURES, default='small',
-                         help="'small' = CardNet (defaut), 'big' = CardNetBig, 'shared' = "
+                         help="'small' = CardNet (default), 'big' = CardNetBig, 'shared' = "
                               "SharedTrunkActorCritic, 'shared_aux' = SharedTrunkActorCriticAux, "
-                              "'shared_deep' = SharedTrunkActorCriticDeep -- architecture par defaut "
-                              "pour les specs sans prefixe explicite `architecture:chemin` (cf. "
-                              "docstring du module pour melanger plusieurs architectures).")
+                              "'shared_deep' = SharedTrunkActorCriticDeep -- default architecture "
+                              "for specs without an explicit `architecture:path` prefix (see "
+                              "the module docstring to mix several architectures).")
     args = parser.parse_args()
 
     if torch is None:
-        raise SystemExit("torch est requis pour evaluer une NeuralPolicy (voir requirements.txt).")
+        raise SystemExit("torch is required to evaluate a NeuralPolicy (see requirements.txt).")
 
     deals = generate_fixed_deals(args.games, args.seed)
-    # cle = spec CLI brut (affichage/dict), valeur = (architecture, chemin reel ou 'heuristic').
+    # key = raw CLI spec (display/dict), value = (architecture, real path or 'heuristic').
     parsed = {raw: parse_spec(raw, args.architecture) for raw in args.specs}
     policies = {raw: load_spec(path, architecture=arch) for raw, (arch, path) in parsed.items()}
 
@@ -122,7 +120,7 @@ def main():
             print(f"{a:55s} vs {b:55s}  avg={avg:+7.2f}  win_rate={100*win_rate:5.1f}%")
 
     print()
-    print(f"Resume round-robin (memes {args.games} donnes fixees pour tous les appariements, seed={args.seed}) :")
+    print(f"Round-robin summary (same {args.games} donnes fixed for all matchups, seed={args.seed}):")
     print(f"{'':55s}", end='')
     for b in args.specs:
         print(f"{b[-20:]:>22s}", end='')

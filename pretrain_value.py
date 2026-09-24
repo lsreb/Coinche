@@ -1,26 +1,26 @@
-"""Pre-entraine un ValueNet (train_ppo.py) par regression supervisee du retour
-CONTRE-FACTUEL -- la meme quantite que train_ppo.py entraine reellement (cf.
-`train.counterfactual_reward`, remarques_rl.md point 3), PAS le retour brut --
-avant le fine-tuning PPO (train_ppo.py --load-value).
+"""Pretrains a ValueNet (train_ppo.py) by supervised regression on the
+COUNTERFACTUAL return -- the same quantity train_ppo.py actually trains on
+(cf. `train.counterfactual_reward`, remarques_rl.md point 3), NOT the raw
+return -- before PPO fine-tuning (train_ppo.py --load-value).
 
-Une premiere version de ce script regressait sur le retour BRUT
-(team_points[0]-team_points[1]), collecte sur des donnes HeuristicPlayer x4 :
-bon R2 hors ligne (0.28), mais performance finale APRES fine-tuning PPO moins
-bonne qu'un ValueNet initialise aleatoirement (verifie empiriquement). Cause :
-train_ppo.py n'entraine value_loss (et l'avantage) que sur
-`reward - counterfactual_reward(...)`, l'ecart a ce qu'un heuristique aurait
-fait sur les MEMES cartes -- et ce contre-factuel absorbe presque tout le
-signal `is_attacker` du retour brut (verifie : ecart attaque/defense d'environ
-190 points sur le retour brut, ~17 points seulement sur le retour
-contre-factuel, sur les memes donnes). Le ValueNet pre-entraine sur le retour
-brut demarrait donc avec des predictions confiantes mais systematiquement
-biaisees pour la VRAIE cible PPO (avantage artificiellement trop negatif en
-attaque, trop positif en defense) -- pire qu'un depart neutre.
+An earlier version of this script regressed on the RAW return
+(team_points[0]-team_points[1]), collected on HeuristicPlayer x4 donnes:
+good offline R2 (0.28), but worse final performance AFTER PPO fine-tuning
+than a randomly initialized ValueNet (verified empirically). Cause:
+train_ppo.py only trains value_loss (and the advantage) on
+`reward - counterfactual_reward(...)`, the gap to what a heuristic would
+have done on the SAME cards -- and this counterfactual absorbs almost all of
+the raw return's `is_attacker` signal (verified: an attack/defense gap of
+about 190 points on the raw return, only ~17 points on the counterfactual
+return, on the same donnes). The ValueNet pretrained on the raw return
+therefore started out with confident but systematically biased predictions
+for the TRUE PPO target (advantage artificially too negative on attack, too
+positive on defense) -- worse than a neutral start.
 
-Simule donc des donnes avec `--policy` (imit.pt par defaut, meme si pas
-encore fine-tunee par PPO) aux sieges 0/2 contre HeuristicPlayer aux sieges
-1/3 -- exactement comme `train.run_episode` -- calcule le meme contre-factuel
-que train_ppo.py sur les memes mains, et regresse ValueNet sur cette cible.
+So this simulates donnes with `--policy` (imit.pt by default, even though
+not yet PPO fine-tuned) at seats 0/2 against HeuristicPlayer at seats 1/3 --
+exactly like `train.run_episode` -- computes the same counterfactual as
+train_ppo.py on the same hands, and regresses ValueNet on that target.
 
 Usage:
     python pretrain_value.py --games 5000 --epochs 20 --out value_imit.pt
@@ -43,11 +43,11 @@ except Exception:
 
 
 def collect_dataset(policy, n_games, seed=None):
-    """Simule n_games donnes, `policy` aux sieges 0/2 (comme train.run_episode)
-    contre HeuristicPlayer aux sieges 1/3, et associe a chaque etat rencontre
-    aux sieges 0/2 le retour contre-factuel de la donne entiere (meme
-    convention que train_ppo.py : un seul scalaire pour tous les etats de la
-    donne, recompense terminale, cf. docstring du module)."""
+    """Simulates n_games donnes, `policy` at seats 0/2 (like
+    train.run_episode) against HeuristicPlayer at seats 1/3, and assigns to
+    every state encountered at seats 0/2 the counterfactual return of the
+    whole donne (same convention as train_ppo.py: a single scalar for all
+    of the donne's states, terminal reward, cf. the module docstring)."""
     if seed is not None:
         random.seed(seed)
     dataset = []
@@ -55,12 +55,12 @@ def collect_dataset(policy, n_games, seed=None):
 
     orig_choose_card = policy.choose_card
     def instrumented(player, legal, leader, trick, trump):
-        # encode_full_state (pas encode_state) : ValueNet est desormais un critic
-        # centralise (cf. train_ppo.py), meme convention que choose_card.
+        # encode_full_state (not encode_state): ValueNet is now a
+        # centralized critic (cf. train_ppo.py), same convention as choose_card.
         current.append(encode_full_state(player, trick, trump))
         return orig_choose_card(player, legal, leader, trick, trump)
     policy.choose_card = instrumented
-    policy.record = False  # etats representatifs de la meilleure reponse de la policy, pas d'exploration bruitee
+    policy.record = False  # states representative of the policy's best response, not noisy exploration
 
     start = time.perf_counter()
     for i in range(n_games):
@@ -79,8 +79,8 @@ def collect_dataset(policy, n_games, seed=None):
 
     policy.choose_card = orig_choose_card
     elapsed = time.perf_counter() - start
-    print(f'{n_games} donnes simulees en {elapsed:.1f}s -> {len(dataset)} exemples '
-          f'({len(dataset) / n_games:.1f} par donne)')
+    print(f'{n_games} donnes simulated in {elapsed:.1f}s -> {len(dataset)} examples '
+          f'({len(dataset) / n_games:.1f} per donne)')
     return dataset
 
 
@@ -117,25 +117,31 @@ def train_supervised(dataset, epochs, lr, batch_size, device='cpu'):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--games', type=int, default=20000,
-                         help="Nombre de donnes (--policy aux sieges 0/2 vs heuristic) a simuler. Plus eleve "
-                              "que pretrain.py (imitation) : la cible contre-factuelle a un residuel bien "
-                              "plus faible (R2~0.28 sur le retour brut, ~0.03-0.06 apres soustraction du "
-                              "contrefactuel qui absorbe deja la plus grosse partie du signal), donc plus "
-                              "lent a distinguer du bruit -- verifie empiriquement data-starved a 5000.")
+                         help="Number of donnes (--policy at seats 0/2 vs "
+                              "heuristic) to simulate. Higher than "
+                              "pretrain.py (imitation): the counterfactual "
+                              "target has a much smaller residual (R2~0.28 "
+                              "on the raw return, ~0.03-0.06 after "
+                              "subtracting the counterfactual which already "
+                              "absorbs most of the signal), so it's slower "
+                              "to distinguish from noise -- empirically "
+                              "verified data-starved at 5000.")
     parser.add_argument('--epochs', type=int, default=60,
-                         help="Nombre d'epochs d'entrainement supervise. Plus eleve que pretrain.py : R2(val) "
-                              "continue de progresser jusqu'a au moins 60 sur ce residuel faible signal (a "
-                              "20000 donnes), contrairement a l'imitation de policy qui sature bien plus tot.")
+                         help="Number of supervised training epochs. "
+                              "Higher than pretrain.py: R2(val) keeps "
+                              "improving up to at least 60 on this weak "
+                              "residual signal (at 20000 donnes), unlike "
+                              "policy imitation which saturates much earlier.")
     parser.add_argument('--batch-size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--policy', default='rl_experiments/imit.pt',
-                         help="Policy chargee aux sieges 0/2 pour la collecte (meme role que train.run_episode).")
-    parser.add_argument('--out', default='value_imit.pt', help='Chemin de sauvegarde des poids pre-entraines.')
+                         help="Policy loaded at seats 0/2 for collection (same role as train.run_episode).")
+    parser.add_argument('--out', default='value_imit.pt', help='Path to save the pretrained weights.')
     args = parser.parse_args()
 
     if torch is None:
-        raise SystemExit("torch est requis pour pre-entrainer un ValueNet (voir requirements.txt).")
+        raise SystemExit("torch is required to pretrain a ValueNet (see requirements.txt).")
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -148,7 +154,7 @@ def main():
     net = train_supervised(dataset, epochs=args.epochs, lr=args.lr, batch_size=args.batch_size)
 
     torch.save(net.state_dict(), args.out)
-    print('poids pre-entraines sauvegardes dans', args.out)
+    print('pretrained weights saved to', args.out)
 
 
 if __name__ == '__main__':

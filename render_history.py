@@ -5,7 +5,7 @@ from pathlib import Path
 from coinche.game import SUITS, TRUMP_ORDER, NORMAL_ORDER, TRUMP_POINTS, NORMAL_POINTS, SA_POINTS
 
 PLAYER_POSITIONS = {0: 'North', 1: 'West', 2: 'South', 3: 'East'}
-TEAM_LABELS = {0: 'Nord-Sud', 1: 'Ouest-Est'}
+TEAM_LABELS = {0: 'North-South', 1: 'West-East'}
 
 CARD_BG = {
     'P': '#0055aa',
@@ -25,9 +25,9 @@ def card_html(card):
 
 
 def sort_hand(cards, trump):
-    """Trie les cartes par couleur (ordre fixe P/C/K/T), puis dans chaque couleur
-    selon l'ordre de force réel (ordre atout si TA ou si c'est la couleur d'atout,
-    ordre normal sinon)."""
+    """Sorts cards by suit (fixed P/C/K/T order), then within each suit by
+    real rank order (trump order if TA or if it's the trump suit, normal
+    order otherwise)."""
     def key(card):
         if len(card) < 2:
             return (99, 99)
@@ -42,7 +42,7 @@ def sort_hand(cards, trump):
 
 def hand_html(cards):
     if not cards:
-        return '<span class="empty">(vide)</span>'
+        return '<span class="empty">(empty)</span>'
     return ' '.join(card_html(c) for c in cards)
 
 
@@ -59,12 +59,12 @@ def card_point(card, trump):
 
 
 def running_team_scores(history, trump):
-    """Score cumulé (points de cartes + belote + 10 de der) après chaque pli,
-    répliquant exactement la logique de GameEngine.play() (game.py).
+    """Running score (card points + belote + last-trick bonus) after each
+    trick, exactly replicating GameEngine.play()'s logic (game.py).
 
-    La belote ne compte que si un même joueur détient le Roi ET la Dame
-    d'atout dans sa main initiale ; elle est créditée dès que ce joueur a
-    joué la seconde des deux cartes, quel que soit le vainqueur du pli."""
+    Belote only counts if the same player holds the trump King AND Queen
+    in their initial hand; it's credited as soon as that player has
+    played the second of the two cards, regardless of who wins the trick."""
     belote_seat = None
     if trump not in ('SA', 'TA'):
         for seat, hand in enumerate(history['deal_hands']):
@@ -89,8 +89,8 @@ def running_team_scores(history, trump):
             team = winner % 2
             is_last = idx == len(tricks)
             if capot_team is not None and is_last:
-                # Une équipe qui fait tous les plis marque 250 (regles_coinche.md §5),
-                # pas la somme brute des points de cartes.
+                # A team that takes every trick scores 250 (regles_coinche.md §5),
+                # not the raw sum of card points.
                 team_points = {0: 0, 1: 0}
                 team_points[capot_team] = 250
             else:
@@ -113,17 +113,18 @@ def running_team_scores(history, trump):
 
 
 def coinche_final_scores(history, raw_final_scores, belote_info):
-    """Si le contrat est coinché, remplace le score brut de plis par le forfait
-    fixe de regles_coinche.md §5 (160 + 2x le contrat pour l'équipe qui gagne la
-    donne, 0 pour l'autre) -- reproduit exactement GameEngine.play() (game.py).
-    `raw_final_scores` est le score de plis (points + der + belote) après le
-    dernier pli, tel que renvoyé par `running_team_scores`."""
+    """If the contract is coinched, replaces the raw trick score with the
+    flat award from regles_coinche.md §5 (160 + 2x the contract for the
+    team that wins the donne, 0 for the other) -- exactly reproduces
+    GameEngine.play() (game.py). `raw_final_scores` is the trick score
+    (points + last-trick bonus + belote) after the last trick, as
+    returned by `running_team_scores`."""
     contract = history['contract']
     if not contract.get('coinched'):
         return None
     taker_team = contract['taker'] % 2
     defense_team = 1 - taker_team
-    level = contract['level']  # deja 250 pour un capot (cf. GameEngine._normalize_bid)
+    level = contract['level']  # already 250 for a capot (cf. GameEngine._normalize_bid)
     attack_success = raw_final_scores[taker_team] >= level
     winner = taker_team if attack_success else defense_team
     loser = 1 - winner
@@ -157,7 +158,7 @@ def player_box_html(seat, css_class, hand_cards, trump, leader_seat=None):
     label = PLAYER_POSITIONS[seat]
     is_leader = leader_seat is not None and seat == leader_seat
     extra_class = ' leader' if is_leader else ''
-    badge = ' <span class="leader-badge" title="Entame du pli">&#9654; entame</span>' if is_leader else ''
+    badge = ' <span class="leader-badge" title="Leads the trick">&#9654; lead</span>' if is_leader else ''
     return f'<div class="player {css_class}{extra_class}">{label}{badge}<br>{hand_html(sort_hand(hand_cards, trump))}</div>'
 
 
@@ -211,7 +212,7 @@ def generate_page(history, out_path):
         belote_badge_0 = ''
         belote_badge_1 = ''
         if belote_info is not None and i >= belote_info['trick']:
-            badge = ' <span class="belote-badge" title="Belote (Roi+Dame d\'atout)">&#9734; belot&eacute;</span>'
+            badge = ' <span class="belote-badge" title="Belote (King+Queen of trump)">&#9734; belote</span>'
             if belote_info['team'] == 0:
                 belote_badge_0 = badge
             else:
@@ -220,7 +221,7 @@ def generate_page(history, out_path):
         if final_coinche is not None and i == len(stages):
             final_score_html = f'''
             <div class="score-cumul coinche-final">
-              <strong>Score final (coinché &times;2)</strong>
+              <strong>Final score (coinched &times;2)</strong>
               <span class="score-team score-team-0">{TEAM_LABELS[0]}: {final_coinche.get(0, 0)}</span>
               <span class="score-team score-team-1">{TEAM_LABELS[1]}: {final_coinche.get(1, 0)}</span>
             </div>'''
@@ -237,7 +238,7 @@ def generate_page(history, out_path):
             <div><strong>Trick</strong> {stage['trick']}</div>
             <div><strong>Winner</strong> {winner_label}</div>
             <div class="score-cumul">
-              <strong>Score de plis (brut)</strong>
+              <strong>Raw trick score</strong>
               <span class="score-team score-team-0">{TEAM_LABELS[0]}: {score0}{belote_badge_0}</span>
               <span class="score-team score-team-1">{TEAM_LABELS[1]}: {score1}{belote_badge_1}</span>
             </div>
@@ -328,7 +329,7 @@ buttons.forEach(function(btn) {
     else:
         contract_text = f"{history['contract']['level']}{history['contract'].get('trump')}"
     if history['contract'].get('coinched'):
-        contract_text += ' (coinché ×2)'
+        contract_text += ' (coinched ×2)'
     html = html.replace('__TITLE__', title)
     html = html.replace('__CONTRACT__', contract_text)
     html = html.replace('__TAKER__', str(PLAYER_POSITIONS.get(history['contract'].get('taker'), history['contract'].get('taker'))))

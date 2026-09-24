@@ -98,11 +98,11 @@ class GameEngine:
         if level < 80 or level > 250 or level % 10 != 0:
             return False
         if current_best is None:
-            # Coincher suppose une annonce existante a doubler (regles_coinche.md).
+            # Coinching requires an existing bid to double (regles_coinche.md).
             return not coinched
         if coinched:
-            # La coinche double la derniere annonce telle quelle (meme palier/couleur/
-            # capot), elle ne surencherit pas de 10 comme une enchere normale.
+            # Coinching doubles the last bid as-is (same level/suit/capot), it
+            # doesn't raise by 10 like a normal bid.
             best_level, best_trump, _, best_capot = current_best
             return level == best_level and trump == best_trump and capot == best_capot
         return level >= current_best[0] + 10
@@ -123,8 +123,8 @@ class GameEngine:
                     self.history['auction'].append({'seat': idx, 'offer': None})
                 passes += 1
             elif b[2]:
-                # Coinche : fixe immediatement le contrat a la derniere annonce
-                # (regles_coinche.md), sans laisser les joueurs suivants encherir.
+                # Coinche: immediately locks the contract to the last bid
+                # (regles_coinche.md), without letting the remaining players bid.
                 if self.history is not None:
                     self.history['auction'].append({'seat': idx, 'offer': b})
                 coinched = True
@@ -177,10 +177,10 @@ class GameEngine:
         return best[0]
 
     def legal_moves(self, seat: int, hand: List[Card], trick: List[Tuple[int, Card]], trump: str) -> List[Card]:
-        """Cartes que `seat` peut légalement jouer dans `trick` en cours, régi par
-        regles_coinche.md §4. `GameEngine.play()` ne valide jamais lui-même la
-        légalité de ce que `play_card()` retourne : c'est entièrement la
-        responsabilité de l'appelant (joueur ou policy)."""
+        """Cards that `seat` may legally play in the current `trick`, governed by
+        regles_coinche.md §4. `GameEngine.play()` never itself validates the
+        legality of what `play_card()` returns: that is entirely the caller's
+        responsibility (player or policy)."""
         if not trick:
             return list(hand)
 
@@ -191,12 +191,11 @@ class GameEngine:
             return same if same else list(hand)
 
         if trump == 'TA':
-            # A TA, "l'ordre et les valeurs de toutes les couleurs sont celles
-            # de l'atout" (regles_coinche.md §3) -- la couleur demandee se
-            # comporte donc comme un atout demande en contrat couleur : on
-            # doit monter en force si possible (meme logique que la branche
-            # `lead_suit == trump` ci-dessous), pas de defausse libre tant
-            # qu'on a cette couleur en main.
+            # In TA, "the order and values of all suits are those of trump"
+            # (regles_coinche.md §3) -- the suit led therefore behaves like a
+            # trump led in a suit contract: you must overtrump if possible
+            # (same logic as the `lead_suit == trump` branch below), no free
+            # discard as long as you hold that suit.
             same = [c for c in hand if c.suit == lead_suit]
             if not same:
                 return list(hand)
@@ -218,8 +217,8 @@ class GameEngine:
                 current_winner = t
 
         if lead_suit == trump:
-            # Atout demandé : on doit jouer atout (en montant en force si possible),
-            # sinon défausse libre si on n'a plus d'atout.
+            # Trump led: you must play trump (overtrumping if possible),
+            # otherwise a free discard if you have no more trump.
             if not trumps:
                 return list(hand)
             beating = [c for c in trumps
@@ -231,14 +230,14 @@ class GameEngine:
         if not trumps:
             return list(hand)
         if current_winner[0] == partner_idx:
-            # Partenaire déjà maître du pli : défausse libre (la coupe reste un choix possible).
+            # Partner is already winning the trick: free discard (cutting with trump remains an option).
             return list(hand)
         if current_winner[1].suit == trump:
-            # Un adversaire a déjà coupé : on doit surcouper si possible, sinon défausse libre.
+            # An opponent has already cut: you must overtrump if possible, otherwise free discard.
             beating = [c for c in trumps
                        if self.card_order_key(c, lead_suit, trump) > self.card_order_key(current_winner[1], lead_suit, trump)]
             return beating if beating else list(hand)
-        # Personne n'a encore coupé : on doit couper (n'importe quel atout).
+        # No one has cut yet: you must cut (with any trump).
         return list(trumps)
 
     def card_point(self, card:Card, trump:str):
@@ -251,13 +250,12 @@ class GameEngine:
 
     @staticmethod
     def _round_dizaine(points: int, direction: str = 'nearest') -> int:
-        """Arrondit `points` a la dizaine (regles_coinche.md §5). 'nearest' :
-        unites 5-9 vers la dizaine superieure, 1-4 vers l'inferieure (arrondi
-        standard "half up", pas le round-half-to-even de Python) -- utilise
-        pour les contrats couleur/SA, ou attaque et defense arrondissent
-        pareil. 'down'/'up' forcent systematiquement vers le bas/le haut --
-        utilise a TA, ou l'arrondi est explicitement asymetrique (attaque
-        vers le bas, defense vers le haut)."""
+        """Rounds `points` to the nearest ten (regles_coinche.md §5). 'nearest':
+        units 5-9 round up to the next ten, 1-4 round down (standard "half up"
+        rounding, not Python's round-half-to-even) -- used for suit/SA
+        contracts, where attack and defense round the same way. 'down'/'up'
+        always force rounding down/up -- used in TA, where rounding is
+        explicitly asymmetric (attack rounds down, defense rounds up)."""
         if direction == 'down':
             return (points // 10) * 10
         if direction == 'up':
@@ -297,7 +295,7 @@ class GameEngine:
         for p, cards in tricks_won.items():
             raw_card_points[p % 2] += sum(self.card_point(c, trump) for c in cards)
         if trump != 'TA':
-            raw_card_points[leader % 2] += 10  # 10 de der (pas de der a TA)
+            raw_card_points[leader % 2] += 10  # last-trick bonus ("dix de der"; none in TA)
 
         belote_bonus = {0:0,1:0}
         if trump != 'SA' and trump != 'TA':
@@ -307,44 +305,44 @@ class GameEngine:
                     belote_bonus[p%2] += 20
                     break
 
-        # Points de plis bruts (+ der + belote), toujours calcules independamment
-        # de la coinche/reussite du contrat : c'est ce qui determine la reussite
-        # du contrat (regles_coinche.md : "avec la belote elle passe a 95 et
-        # pourrait faire son contrat a 80-C", la belote compte donc bien pour la
-        # reussite), et ce que des scripts externes (simulate_contracts.py)
-        # veulent pour calibrer les encheres independamment du score final.
+        # Raw trick points (+ last-trick bonus + belote), always computed
+        # independently of coinche/contract success: this is what determines
+        # whether the contract succeeds (regles_coinche.md: "with the belote
+        # it goes to 95 and could make its 80-C contract", so belote does
+        # count toward success), and what external scripts (simulate_contracts.py)
+        # want in order to calibrate bids independently of the final score.
         raw_points = {team: raw_card_points[team] + belote_bonus[team] for team in (0, 1)}
         if self.history is not None:
             history_raw_points = dict(raw_points)
             if capot_team is not None:
-                # Un capot vaut "officiellement" 250 (regles_coinche.md), y compris
-                # pour ce champ d'historique -- simulate_contracts.py s'appuie sur
-                # raw_points atteignant 250 pour detecter un capot reussi dans son
-                # tableau de calibration. N'affecte pas la logique de scoring
-                # ci-dessous (capot_team est deja traite dans une branche a part).
+                # A capot is "officially" worth 250 (regles_coinche.md), including
+                # for this history field -- simulate_contracts.py relies on
+                # raw_points reaching 250 to detect a successful capot in its
+                # calibration table. Doesn't affect the scoring logic below
+                # (capot_team is already handled in its own branch).
                 history_raw_points[capot_team] = 250 + belote_bonus[capot_team]
             self.history['raw_points'] = history_raw_points
 
         taker_team = self.taker_idx % 2
         defense_team = 1 - taker_team
-        # A TA le seuil de reussite est sur l'echelle a 15 (80-TA necessite 120,
-        # 90-TA necessite 135, ...), pas la valeur brute du contrat (correspondance
+        # In TA the success threshold is on the 15-point scale (80-TA needs 120,
+        # 90-TA needs 135, ...), not the contract's raw value (mapping
         # 80-90-...-160 <-> 120-135-...-240, regles_coinche.md §5).
         threshold = int(self.contract.level * 1.5) if trump == 'TA' else self.contract.level
 
         if capot_team is not None:
-            # Une equipe qui fait tous les plis marque 250 (quel que soit le
-            # contrat), 500 (+belote) en plus si c'etait precisement le capot
-            # annonce et reussi par le preneur (regles_coinche.md §5).
+            # A team that takes every trick scores 250 (whatever the
+            # contract), and 500 (+belote) instead if it was precisely the
+            # capot announced and made by the taker (regles_coinche.md §5).
             attack_success = (capot_team == taker_team)
             if self.contract.capot and attack_success:
                 team_points = {taker_team: 500 + belote_bonus[taker_team], defense_team: belote_bonus[defense_team]}
             else:
                 team_points = {capot_team: 250, (1 - capot_team): 0}
         elif self.contract.capot:
-            # Capot annonce mais pas realise (preneur n'a pas fait les 8 plis) :
-            # chute du contrat capot -- self.contract.level vaut deja 250 pour un
-            # capot (_normalize_bid), donc la defense marque 160+250.
+            # Capot announced but not achieved (taker didn't win all 8 tricks):
+            # the capot contract falls -- self.contract.level is already 250 for
+            # a capot (_normalize_bid), so the defense scores 160+250.
             attack_success = False
             team_points = {
                 taker_team: belote_bonus[taker_team],
@@ -354,26 +352,25 @@ class GameEngine:
             attack_success = raw_points[taker_team] >= threshold
             if attack_success:
                 if trump == 'TA':
-                    # A TA, les points de plis sont d'abord convertis sur
-                    # l'echelle a 15 (15 points TA = 10 points "equivalents"),
-                    # PUIS arrondis a la dizaine -- pas l'inverse. En pratique
-                    # ca revient a une division entiere par 15 (attaque, vers
-                    # le bas) ou une division entiere superieure par 15
-                    # (defense, vers le haut), le tout x10. Le contrat ajoute
-                    # est le seuil deja mis a l'echelle (`threshold`, ex. 120
-                    # pour un contrat annonce a 80), pas la valeur brute
-                    # annoncee -- confirme par regles_coinche.md §5 (exemple
-                    # corrige : 195-209 points de plis -> 130 points
-                    # equivalents pour l'attaque, 120+130=250 ; le complementaire
-                    # cote defense donne 30).
+                    # In TA, trick points are first converted to the 15-point
+                    # scale (15 TA points = 10 "equivalent" points), THEN
+                    # rounded to the nearest ten -- not the other way round. In
+                    # practice this comes down to integer division by 15
+                    # (attack, rounding down) or integer division rounded up
+                    # by 15 (defense, rounding up), all x10. The contract term
+                    # added is the threshold already scaled (`threshold`, e.g.
+                    # 120 for an 80 contract), not the raw announced value --
+                    # confirmed by regles_coinche.md §5 (corrected example:
+                    # 195-209 trick points -> 130 equivalent points for the
+                    # attack, 120+130=250; the defense's complement gives 30).
                     attack_made = (raw_card_points[taker_team] // 15) * 10
                     defense_made = -(-raw_card_points[defense_team] // 15) * 10
                     contract_component = threshold
                 else:
-                    # Couleur/SA : arrondi standard (5-9 superieur, 1-4
-                    # inferieur) des deux cotes, contrat ajoute a sa valeur
-                    # annoncee brute (regles_coinche.md §5, exemple 90-T
-                    # verifie : 107->110, 55->60).
+                    # Suit/SA: standard rounding (5-9 up, 1-4 down) on both
+                    # sides, contract term added at its raw announced value
+                    # (regles_coinche.md §5, verified with the 90-T example:
+                    # 107->110, 55->60).
                     attack_made = self._round_dizaine(raw_card_points[taker_team], 'nearest')
                     defense_made = self._round_dizaine(raw_card_points[defense_team], 'nearest')
                     contract_component = self.contract.level
@@ -382,18 +379,19 @@ class GameEngine:
                     defense_team: defense_made + belote_bonus[defense_team],
                 }
             else:
-                # Contrat chute : l'attaque marque 0 (+sa belote), la defense
-                # marque 160 + la valeur du contrat (+sa belote).
+                # Contract falls: the attack scores 0 (+ its belote), the
+                # defense scores 160 + the contract value (+ its belote).
                 team_points = {
                     taker_team: belote_bonus[taker_team],
                     defense_team: 160 + self.contract.level + belote_bonus[defense_team],
                 }
 
         if self.contract.coinched:
-            # La coinche double la mise et remplace le score par un forfait fixe
-            # (160 + 2x le contrat) pour l'equipe qui gagne la donne (= a reussi
-            # son contrat, deja determine ci-dessus via `attack_success`), 0 pour
-            # l'autre -- independamment des points de plis reellement faits.
+            # Coinching doubles the stakes and replaces the score with a flat
+            # award (160 + 2x the contract) for the team that wins the donne
+            # (= made its contract, already determined above via
+            # `attack_success`), 0 for the other -- regardless of the trick
+            # points actually made.
             winner = taker_team if attack_success else defense_team
             loser = 1 - winner
             team_points = {
@@ -402,10 +400,10 @@ class GameEngine:
             }
 
         return team_points, self.contract
-    
+
 
 if __name__ == '__main__':
-    print("ok") #le test
+    print("ok")  # sanity check
     sample_hands = [['AT', '10T', 'KC', 'QC', 'JP', '9P', '8P', '7P'],
             ['AK', '10K', 'KT', 'QT', 'JC', '9C', '8C', '7C'],
             ['AP', '10P', 'KK', 'QK', 'JT', '9T', '8T', '7T'],

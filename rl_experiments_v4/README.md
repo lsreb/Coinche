@@ -1,69 +1,70 @@
-# Checkpoints RL - lignee v4 (CardNetBig : MLP a plusieurs couches)
+# RL checkpoints - lineage v4 (CardNetBig: a deeper MLP)
 
-Dossier separe de `rl_experiments_v3/`, cree quand `coinche/rl_agent.py` a
-gagne `CardNetBig` (167 -> 128 -> 128 -> 64 -> 32, GELU, LayerNorm Pre-LN
-avant chaque couche lineaire, ~1.9x plus de parametres que `CardNet`) --
-memes principe que les passages v1->v2 (regle 5 du scoring) et v2->v3
-(nouvelle feature d'etat `_points_so_far`) : l'architecture change de
-forme (`fc1` a une shape differente), donc les checkpoints ne sont plus
-compatibles avec `CardNet` et les lignees precedentes. L'etat/scoring ne
-changent pas (toujours 167-dim, meme moteur de jeu) : `CardNetBig` reste
-chargeable via `--architecture big` (`train.py`/`pretrain.py`/
+A directory separate from `rl_experiments_v3/`, created when
+`coinche/rl_agent.py` gained `CardNetBig` (167 -> 128 -> 128 -> 64 -> 32,
+GELU, Pre-LN LayerNorm before each linear layer, ~1.9x more parameters
+than `CardNet`) -- the same principle as the v1->v2 (scoring rule 5) and
+v2->v3 (new `_points_so_far` state feature) transitions: the architecture
+changes shape (`fc1` has a different shape), so checkpoints are no longer
+compatible with `CardNet` and the previous lineages. The state/scoring
+don't change (still 167-dim, same game engine): `CardNetBig` stays
+loadable via `--architecture big` (`train.py`/`pretrain.py`/
 `eval_policy.py`/`eval_matchup.py`, cf. `PPOPolicy.policy_net_cls`/
-`NeuralPolicy.net_cls`), `CardNet` (`--architecture small`, defaut) reste
-inchange et les checkpoints de `rl_experiments_v3/` restent charges et
-reproductibles a l'identique.
+`NeuralPolicy.net_cls`), `CardNet` (`--architecture small`, default) stays
+unchanged, and `rl_experiments_v3/`'s checkpoints stay loadable and
+exactly reproducible.
 
-Contexte/plan complet : `coinche/remarques_rl.md` point 6. Le pool
-grandissant (`rl_experiments_v3/README.md`) est la seule piste
-structurelle qui a tenu cette session ; toutes les pistes cote critic ont
-echoue parce que `ValueNet` est un reseau totalement independant de
-`CardNet` -- rien ne peut atteindre l'acteur. Etape 1 du plan (celle-ci) :
-tester si la capacite seule (`CardNet` n'a qu'une couche cachee de 128)
-est un facteur limitant, isolee de tout le reste (reseaux toujours
-separes, entrainement simple contre heuristic, REINFORCE d'abord).
+Context/full plan: `coinche/remarques_rl.md` point 6. The growing pool
+(`rl_experiments_v3/README.md`) is the only structural idea that held up
+this session; every critic-side idea failed because `ValueNet` is a
+network entirely independent of `CardNet` -- nothing can reach the actor.
+Step 1 of the plan (this one): test whether capacity alone (`CardNet` has
+only a single 128-unit hidden layer) is a limiting factor, isolated from
+everything else (networks still separate, plain training against
+heuristic, REINFORCE first).
 
-## `imit_bignet.pt` : accuracy d'imitation nettement meilleure
+## `imit_bignet.pt`: clearly better imitation accuracy
 
-Meme protocole que `rl_experiments_v3/imit.pt` (5000 donnes, 20 epochs,
-seed 0) : **98.2% d'accuracy d'imitation, contre 92.8% pour `imit.pt`**
-(`CardNet`) -- signal fort que la capacite du petit reseau etait
-limitante pour imiter l'heuristique.
+Same protocol as `rl_experiments_v3/imit.pt` (5000 donnes, 20 epochs,
+seed 0): **98.2% imitation accuracy, vs 92.8% for `imit.pt`** (`CardNet`)
+-- a strong signal that the small network's capacity was limiting how
+well it could imitate the heuristic.
 
-## Balayage de lr, REINFORCE, seed20 (100k episodes)
+## lr sweep, REINFORCE, seed20 (100k episodes)
 
-Fine-tuning REINFORCE depuis `imit_bignet.pt` (`--architecture big`),
-sinon meme protocole que `rl_experiments_v3/exp_reinforce_lr3e-5`
-(`entropy-beta=0.002, entropy-decay=none, opponent=heuristic`) :
+REINFORCE fine-tuning from `imit_bignet.pt` (`--architecture big`),
+otherwise the same protocol as `rl_experiments_v3/exp_reinforce_lr3e-5`
+(`entropy-beta=0.002, entropy-decay=none, opponent=heuristic`):
 
-| lr | eval_avg(45000) | eval_avg(10000, echantillon different) |
+| lr | eval_avg(45000) | eval_avg(10000, different sample) |
 |---|---|---|
 | `3e-5` | +11.51 | +15.22 |
 | `1e-4` | +14.06 | +16.38 |
-| `3e-4` | -27.9 (eval_avg(500) en fin d'entrainement) | **-28.91 (policy detruite)** |
+| `3e-4` | -27.9 (eval_avg(500) at the end of training) | **-28.91 (policy destroyed)** |
 
-Std par partie (sur l'echantillon a 10000) ~228.5, erreur-type ±2.29 a
-n=10000 -- l'ecart entre les deux mesures du MEME checkpoint lr=3e-5
-(+11.51 puis +15.22 selon l'echantillon de donnes) illustre le bruit de
-mesure residuel meme a n=45000 (erreur-type ~1.08 sur cet echantillon-la).
+Per-game std (on the n=10000 sample) ~228.5, standard error ±2.29 at
+n=10000 -- the gap between the two measurements of the SAME lr=3e-5
+checkpoint (+11.51 then +15.22 depending on the donne sample) illustrates
+the residual measurement noise even at n=45000 (standard error ~1.08 on
+that particular sample).
 
-**Constats (1 seed, prudence) :**
-- `lr=3e-4` detruit clairement la policy (des dizaines d'erreurs-types
-  sous les deux autres) -- meme pathologie que `8e-4` pour PPO
+**Findings (1 seed, caution warranted):**
+- `lr=3e-4` clearly destroys the policy (tens of standard errors below
+  both others) -- the same pathology as `8e-4` for PPO
   (`coinche/remarques_rl.md` point 5).
-- `lr=3e-5` vs `lr=1e-4` : l'ecart observe (1.16 a 2.55 points selon
-  l'echantillon) est dans le bruit (erreur-type ~2.29) -- pas de
-  difference claire entre les deux a ce stade.
-- Sur le dernier echantillon (n=10000), les deux configs non-divergees
-  (+15.22, +16.38) se retrouvent **autour du plateau etabli pour
-  `CardNet`** (`rl_experiments_v3` : PPO `epochs=8` 15.13, REINFORCE
-  `lr=3e-5` 15.15, sur plusieurs seeds) -- ni clairement meilleur ni
-  clairement pire, contrairement a ce que suggerait la toute premiere
-  mesure (+11.51 seul, a l'epoque un seul point de donnee).
+- `lr=3e-5` vs `lr=1e-4`: the observed gap (1.16 to 2.55 points depending
+  on the sample) is within the noise (standard error ~2.29) -- no clear
+  difference between the two at this stage.
+- On the latest sample (n=10000), the two non-diverged configs (+15.22,
+  +16.38) end up **around the plateau established for `CardNet`**
+  (`rl_experiments_v3`: PPO `epochs=8` 15.13, REINFORCE `lr=3e-5` 15.15,
+  over several seeds) -- neither clearly better nor clearly worse, unlike
+  what the very first measurement suggested (+11.51 alone, at the time a
+  single data point).
 
-## `lr=1e-4`, n=3 : stable, mais legerement sous le plateau `CardNet`
+## `lr=1e-4`, n=3: stable, but slightly below the `CardNet` plateau
 
-3 seeds (20/21/22, meme protocole, `lr=1e-4`) evalues a n=45000 :
+3 seeds (20/21/22, same protocol, `lr=1e-4`) evaluated at n=45000:
 
 | seed | eval_avg(45000) |
 |---|---|
@@ -71,146 +72,140 @@ mesure residuel meme a n=45000 (erreur-type ~1.08 sur cet echantillon-la).
 | 21 | +14.00 |
 | 22 | +12.87 |
 
-Moyenne **13.64**, ecart-type **0.67** -- tres stable entre seeds (dans
-le meme ordre de grandeur que les configs stables de `rl_experiments_v3`,
-std 0.39-0.40). Mais ~1.5 point **en dessous** des deux plateaux `CardNet`
-deja etablis (PPO `epochs=8` : 15.13/std=0.39 ; REINFORCE `lr=3e-5` :
-15.15/std=0.40). Test de Welch contre chacun des deux : t≈3.3-3.5
-(df≈3.1-3.2, seuil critique ≈3.18) -- juste au-dessus du seuil
-conventionnel, donc un ecart tout juste significatif a ce stade, mais pas
-massif (n=3 contre n=3-4, comme toujours dans cette lignee a prendre avec
-prudence avant de le considerer acquis).
+Mean **13.64**, std **0.67** -- very stable across seeds (the same order
+of magnitude as `rl_experiments_v3`'s stable configs, std 0.39-0.40). But
+~1.5 point **below** both already-established `CardNet` plateaus (PPO
+`epochs=8`: 15.13/std=0.39; REINFORCE `lr=3e-5`: 15.15/std=0.40). A
+Welch's t-test against each of the two: t≈3.3-3.5 (df≈3.1-3.2, critical
+threshold ≈3.18) -- just above the conventional threshold, so a barely
+significant gap at this stage, but not massive (n=3 against n=3-4, as
+always in this lineage to be taken with caution before treating it as settled).
 
-**Portee explicite de cette conclusion (importante) :** ce resultat ne
-concerne que **`lr=1e-4` sur REINFORCE simple**, pas `CardNetBig` en
-general :
-- `lr=3e-5` n'a jamais ete teste a plusieurs seeds (un seul point,
-  +11.51 puis +15.22 selon l'echantillon d'eval -- lui-meme dans le
-  bruit d'echantillonnage, cf. plus haut) -- il est possible que `3e-5`
-  soit en fait meilleur que `1e-4` pour ce reseau plus profond, une fois
-  confirme a plusieurs seeds.
-- Cette etape ne teste que la capacite pure, sur REINFORCE, contre
-  heuristic seul, avec le protocole d'imitation/donnees identique a
-  `CardNet`. Reste a voir comment ce reseau apprend avec d'autres
-  changements de donnees (plus de donnes/epochs a l'imitation, pool
-  grandissant...) et surtout avec l'etape 2 du plan
-  (`coinche/remarques_rl.md` point 6) : tronc partage acteur/critic +
-  critic centralise + taches auxiliaires, jamais testee -- cette premiere
-  etape isolee ne prejuge pas du resultat une fois le critic implique.
+**Explicit scope of this conclusion (important):** this result only
+concerns **`lr=1e-4` on plain REINFORCE**, not `CardNetBig` in general:
+- `lr=3e-5` has never been tested over several seeds (a single point,
+  +11.51 then +15.22 depending on the eval sample -- itself within
+  sampling noise, see above) -- it's possible `3e-5` is actually better
+  than `1e-4` for this deeper network, once confirmed over several seeds.
+- This step only tests raw capacity, on REINFORCE, against heuristic
+  alone, with the same imitation/data protocol as `CardNet`. It remains to
+  be seen how this network learns with other data changes (more
+  donnes/epochs for imitation, a growing pool...) and especially with step
+  2 of the plan (`coinche/remarques_rl.md` point 6): a shared
+  actor/critic trunk + centralized critic + auxiliary tasks, never
+  tested -- this first isolated step doesn't prejudge the result once the
+  critic is involved.
 
-## `lr=3e-5`, n=2 (partiel) : variance plus large, pas encore de conclusion
+## `lr=3e-5`, n=2 (partial): wider variance, no conclusion yet
 
-Seed21 ajoute (meme protocole, `lr=3e-5`) :
+Seed21 added (same protocol, `lr=3e-5`):
 
 | seed | eval_avg(45000) |
 |---|---|
 | 20 | +11.51 |
 | 21 | +15.37 |
 
-Moyenne 13.44 (n=2) -- proche de la moyenne `lr=1e-4` (13.64, n=3), mais
-avec un ecart bien plus large entre les deux seeds (3.86 points, contre
-1.19 sur les 3 seeds `lr=1e-4`) -- pas encore assez de seeds pour dire si
-`lr=3e-5` a une vraie variance plus grande ou si c'est juste n=2. Le
-seed21 seul (+15.37) tombe pile dans le plateau `CardNet` habituel
-(~15.1-15.2). **Pas de conclusion sur lequel des deux lr est meilleur a
-ce stade** -- un 3e seed a `lr=3e-5` serait necessaire pour comparer a
-rigueur egale.
+Mean 13.44 (n=2) -- close to `lr=1e-4`'s mean (13.64, n=3), but with a
+much wider gap between the two seeds (3.86 points, vs 1.19 across
+`lr=1e-4`'s 3 seeds) -- not yet enough seeds to say whether `lr=3e-5` has
+a genuinely larger variance or if it's just n=2. Seed21 alone (+15.37)
+lands right in the usual `CardNet` plateau (~15.1-15.2). **No conclusion
+on which of the two lrs is better at this stage** -- a 3rd seed at
+`lr=3e-5` would be needed for an equally rigorous comparison.
 
-## Piste ouverte : la policy issue de l'imitation est-elle trop confiante ?
+## Open idea: is the imitation-derived policy too confident?
 
-Hypothese testee (discussion 2026-07-26) : la legere sous-performance de
-`CardNetBig` pourrait venir d'un point de depart d'imitation trop
-confiant/peu plastique pour le fine-tuning REINFORCE (gradient de policy
-bruite, une seule mise a jour par donne), plutot que d'un probleme de
-capacite ou de vanishing gradient (peu plausible ici : reseau peu
-profond, GELU + LayerNorm Pre-LN deja concus pour eviter ca, et les
-trajectoires d'entrainement montrent un vrai mouvement, pas une
-stagnation).
+Hypothesis tested (2026-07-26 discussion): `CardNetBig`'s slight
+underperformance could come from an imitation starting point too
+confident/inflexible for REINFORCE fine-tuning (a noisy policy gradient,
+a single update per donne), rather than a capacity or vanishing-gradient
+issue (not very plausible here: a shallow network, GELU + Pre-LN LayerNorm
+already designed to avoid that, and the training trajectories show real
+movement, not stagnation).
 
-**Test A (verifie)** : entropie de la policy juste apres imitation (avant
-tout RL), sur un echantillon de 16000 decisions (500 donnes heuristic x4) :
+**Test A (verified)**: the policy's entropy right after imitation (before
+any RL), over a sample of 16000 decisions (500 heuristic x4 donnes):
 
-| | entropie moyenne | top1_prob moyen |
+| | mean entropy | mean top1_prob |
 |---|---|---|
 | `CardNet` (`imit.pt`) | 0.2153 (std=0.3186) | 91.5% |
 | `CardNetBig` (`imit_bignet.pt`) | **0.0848** (std=0.1972) | **96.6%** |
 
-**Confirme l'hypothese** : `CardNetBig` sort de l'imitation avec une
-entropie ~2.5x plus faible -- distribution bien plus pointue (96.6% de la
-masse sur le coup prefere, contre 91.5%). Coherent avec un point de
-depart trop confiant, meme si ca ne prouve pas encore le lien de causalite
-avec la performance RL finale.
+**Confirms the hypothesis**: `CardNetBig` comes out of imitation with
+~2.5x lower entropy -- a much more peaked distribution (96.6% of the mass
+on the preferred move, vs 91.5%). Consistent with a too-confident starting
+point, even though this doesn't yet prove causality with final RL
+performance.
 
-**A tester ensuite** : `entropy-beta=0.006` (facteur ~2.5-3x l'actuel
-0.002, calibre sur l'ecart d'entropie mesure -- prefere a un saut
-arbitraire type 0.02, par prudence : on ne connait pas la sensibilite de
-ce reseau a ce coefficient, et augmenter trop pourrait tout aussi bien
-sur-corriger vers une policy trop aleatoire). Plan : mesurer d'abord
-l'entropie post-entrainement des 5 checkpoints deja entraines a 0.002
-(reutilise les checkpoints existants, aucun nouvel entrainement
-necessaire) comme reference, puis lancer un run court (20000 episodes)
-a 0.006 pour verifier que l'entropie realisee augmente comme attendu,
-avant d'investir dans une comparaison complete a 100k episodes.
+**Next to test**: `entropy-beta=0.006` (a factor of ~2.5-3x the current
+0.002, calibrated on the measured entropy gap -- preferred over an
+arbitrary jump like 0.02, out of caution: this network's sensitivity to
+this coefficient is unknown, and raising it too much could just as well
+overcorrect into a too-random policy). Plan: first measure the
+post-training entropy of the 5 checkpoints already trained at 0.002
+(reusing existing checkpoints, no new training needed) as a reference,
+then launch a short run (20000 episodes) at 0.006 to check the realized
+entropy rises as expected, before investing in a full 100k-episode
+comparison.
 
-## Bonus d'entropie plus fort : ne marche pas -- le probleme vient de l'imitation, pas du RL
+## Stronger entropy bonus: doesn't work -- the problem comes from imitation, not RL
 
-Reference (post-entrainement, `entropy-beta=0.002`, memes 5 checkpoints
-100k episodes que plus haut) : entropie 0.0838-0.1173, tres proche du
-depart imitation (0.0848) -- l'entrainement REINFORCE ne bouge quasiment
-pas l'entropie. Pour comparaison, `CardNet` (v3) reste toute sa vie dans
-0.17-0.22 (imitation comme apres RL) -- `CardNetBig` opere a peu pres a
-moitie de ce niveau, a chaque etape.
+Reference (post-training, `entropy-beta=0.002`, the same 5 100k-episode
+checkpoints as above): entropy 0.0838-0.1173, very close to the imitation
+starting point (0.0848) -- REINFORCE training barely moves the entropy.
+For comparison, `CardNet` (v3) stays its whole life within 0.17-0.22
+(imitation as much as after RL) -- `CardNetBig` operates at roughly half
+that level, at every stage.
 
-Teste `entropy-beta` plus eleve pour compenser, sur des runs COURTS
-(20000 episodes, meme seed20, `lr=1e-4`, pour isoler l'effet du
-coefficient a volume d'entrainement egal) :
+Tested a higher `entropy-beta` to compensate, on SHORT runs (20000
+episodes, same seed20, `lr=1e-4`, to isolate the coefficient's effect at
+equal training volume):
 
-| entropy-beta | entropie moy (20000 ep) | top1_prob moy |
+| entropy-beta | mean entropy (20000 ep) | mean top1_prob |
 |---|---|---|
 | `0.002` (reference) | 0.0966 | 96.10% |
 | `0.006` (~3x) | 0.0986 | 95.98% |
 | `0.06` (~30x) | **0.1018** | 95.91% |
 
-**Le bonus d'entropie n'a quasiment aucune prise ici** : meme multiplie
-par 30x, l'entropie bouge a peine (+0.005 par rapport a la reference).
-Hypothese : pres d'une distribution quasi-deterministe (comme celle de
-`CardNetBig` des la sortie d'imitation), le gradient de l'entropie par
-rapport aux logits devient tres plat -- aucun coefficient raisonnable ne
-peut la faire bouger significativement une fois la policy aussi confiante.
-Le probleme vient donc de l'**imitation elle-meme**, pas d'un correctif a
-appliquer apres coup pendant le RL.
+**The entropy bonus has almost no traction here**: even multiplied by
+30x, the entropy barely moves (+0.005 relative to the reference).
+Hypothesis: near an almost-deterministic distribution (like
+`CardNetBig`'s right out of imitation), the entropy's gradient with
+respect to the logits becomes very flat -- no reasonable coefficient can
+move it significantly once the policy is this confident. The problem
+therefore comes from **imitation itself**, not from a fix to apply
+afterward during RL.
 
-## Arreter l'imitation a une entropie cible (0.20, niveau de `CardNet`)
+## Stopping imitation at a target entropy (0.20, `CardNet`'s level)
 
-Plutot que de corriger apres coup, arrete l'entrainement d'imitation des
-que l'entropie de la policy (mesuree sur le meme echantillon de 500
-donnes de reference) atteint la cible de `CardNet` (~0.20), au lieu
-d'aller jusqu'a convergence complete (20 epochs, ou l'entropie tombe a
-0.0848).
+Rather than fixing it after the fact, imitation training is stopped as
+soon as the policy's entropy (measured on the same 500-donne reference
+sample) reaches `CardNet`'s target (~0.20), instead of running to full
+convergence (20 epochs, where entropy drops to 0.0848).
 
-| epoch | accuracy | entropie (probe) |
+| epoch | accuracy | entropy (probe) |
 |---|---|---|
 | 1 | 82.1% | 0.3827 |
 | 2 | 89.0% | 0.2933 |
 | 3 | 90.9% | 0.2421 |
 | 4 | 92.1% | 0.2149 |
-| **5** | **92.9%** | **0.1922** (cible atteinte) |
+| **5** | **92.9%** | **0.1922** (target reached) |
 
-Arrete a l'epoch 5 -> `rl_experiments_v4/imit_bignet_ent02.pt`. Fait
-notable : l'accuracy a ce point (92.9%) est quasiment identique a celle
-de `CardNet` totalement converge (92.8%) -- les deux reseaux atteignent
-le meme niveau d'imitation a une entropie comparable, `CardNetBig` juste
-beaucoup plus vite (5 epochs contre 20) grace a sa capacite
-supplementaire. Meme architecture que `imit_bignet.pt` (aucune rupture de
-compatibilite, reste dans cette lignee v4, pas une nouvelle lignee --
-seul le point d'arret de l'entrainement change, pas la forme des poids).
+Stopped at epoch 5 -> `rl_experiments_v4/imit_bignet_ent02.pt`. Notable
+fact: the accuracy at this point (92.9%) is nearly identical to fully
+converged `CardNet`'s (92.8%) -- both networks reach the same level of
+imitation at a comparable entropy, `CardNetBig` just much faster (5
+epochs vs 20) thanks to its extra capacity. Same architecture as
+`imit_bignet.pt` (no compatibility break, stays within this v4 lineage,
+not a new lineage -- only the training stopping point changes, not the
+weights' shape).
 
-## REINFORCE depuis `imit_bignet_ent02.pt` (lr=3e-5) : gain massif, CONFIRME a n=3
+## REINFORCE from `imit_bignet_ent02.pt` (lr=3e-5): a massive gain, CONFIRMED at n=3
 
-Meme protocole exactement que les runs precedents (`lr=3e-5,
+Exactly the same protocol as the previous runs (`lr=3e-5,
 entropy-beta=0.002, entropy-decay=none, opponent=heuristic, 100k
-episodes`), mais depuis `imit_bignet_ent02.pt` (entropie 0.192, epoch 5)
-au lieu de `imit_bignet.pt` (entropie 0.0848, epoch 20).
+episodes`), but from `imit_bignet_ent02.pt` (entropy 0.192, epoch 5)
+instead of `imit_bignet.pt` (entropy 0.0848, epoch 20).
 
 | seed | eval_avg(45000) |
 |---|---|
@@ -218,111 +213,103 @@ au lieu de `imit_bignet.pt` (entropie 0.0848, epoch 20).
 | 21 | +23.21 |
 | 22 | +25.00 |
 
-Moyenne **24.42**, ecart-type **1.05** (n=3) -- tres serre, un vrai
-signal, pas du bruit. Pour comparaison : plateau `CardNet` etabli (PPO
-`epochs=8` : 15.13/std=0.39 ; REINFORCE `lr=3e-5` : 15.15/std=0.40, tous
-sur plusieurs seeds) ; `CardNetBig` depuis l'ancien `imit_bignet.pt`
-(imitation a convergence complete) a `lr=3e-5` (n=2) : 11.51, 15.37
-(moyenne 13.44, borderline pire que `CardNet`).
+Mean **24.42**, std **1.05** (n=3) -- very tight, a real signal, not
+noise. For comparison: the established `CardNet` plateau (PPO `epochs=8`:
+15.13/std=0.39; REINFORCE `lr=3e-5`: 15.15/std=0.40, both over several
+seeds); `CardNetBig` from the old `imit_bignet.pt` (imitation to full
+convergence) at `lr=3e-5` (n=2): 11.51, 15.37 (mean 13.44, borderline
+worse than `CardNet`).
 
-**Delta de +9.27 points par rapport au plateau REINFORCE `lr=3e-5` de
-`CardNet`** -- test de Welch t≈14.6, des dizaines d'erreurs-types
-au-dessus de tout seuil de significativite. C'est de loin le resultat le
-plus large et le mieux confirme de toute la session (REINFORCE ou PPO,
-v3 ou v4).
+**A delta of +9.27 points relative to `CardNet`'s REINFORCE `lr=3e-5`
+plateau** -- a Welch's t-test gives t≈14.6, tens of standard errors above
+any significance threshold. By far this whole session's largest and
+best-confirmed result (REINFORCE or PPO, v3 or v4).
 
-**Conclusion** : l'hypothese complete tenait. La capacite supplementaire
-de `CardNetBig` (128/128/64, GELU, LayerNorm Pre-LN) aide bel et bien --
-mais seulement si on evite le point de depart trop confiant issu d'une
-imitation poussee a convergence complete (entropie 0.0848, ou le bonus
-d'entropie pendant le RL n'a aucune prise, cf. sections precedentes).
-En arretant l'imitation a une entropie cible (~0.20, niveau de
-`CardNet`) au lieu d'aller jusqu'a convergence, le fine-tuning REINFORCE
-part d'un point bien plus exploitable et debloque un gain massif et
-desormais bien confirme (n=3, std=1.05).
+**Conclusion**: the full hypothesis held. `CardNetBig`'s extra capacity
+(128/128/64, GELU, Pre-LN LayerNorm) really does help -- but only if the
+too-confident starting point from imitation run to full convergence
+(entropy 0.0848, where the entropy bonus during RL has no traction) is
+avoided. By stopping imitation at a target entropy (~0.20, `CardNet`'s
+level) instead of running to convergence, REINFORCE fine-tuning starts
+from a far more exploitable point and unlocks a massive, now
+well-confirmed gain (n=3, std=1.05).
 
-## A faire si on veut poursuivre
+## To do if continuing
 
-- Refaire `lr=1e-4` depuis `imit_bignet_ent02.pt` (au moins 1 seed) pour
-  voir si le lr compte encore une fois le bon point de depart utilise, ou
-  si `lr=3e-5` domine desormais clairement.
-- Tester PPO avec `CardNetBig` + `imit_bignet_ent02.pt` (jamais fait,
-  seulement REINFORCE jusqu'ici) -- etant donne PPO≈REINFORCE partout
-  ailleurs dans cette lignee, s'attendre a un gain similaire, mais a
-  verifier.
-- Essayer d'autres cibles d'entropie autour de 0.20 (ex. 0.15, 0.25) pour
-  voir si le point exact compte, ou si toute la zone "pas totalement
-  convergee" fonctionne pareil.
-- Puis passer a l'etape 2 du plan (tronc partage acteur/critic + critic
-  centralise, `coinche/remarques_rl.md` point 6) -- avec ce nouveau point
-  de depart d'imitation desormais comme reference a battre.
+- Redo `lr=1e-4` from `imit_bignet_ent02.pt` (at least 1 seed) to see
+  whether the lr still matters now that the right starting point is used,
+  or whether `lr=3e-5` now clearly dominates.
+- Test PPO with `CardNetBig` + `imit_bignet_ent02.pt` (never done,
+  REINFORCE only so far) -- given PPO≈REINFORCE everywhere else in this
+  lineage, expect a similar gain, but to be verified.
+- Try other entropy targets around 0.20 (e.g. 0.15, 0.25) to see whether
+  the exact point matters, or whether the whole "not fully converged"
+  zone works the same.
+- Then move to step 2 of the plan (shared actor/critic trunk + centralized
+  critic, `coinche/remarques_rl.md` point 6) -- with this new imitation
+  starting point now as the reference to beat.
 
-## `lr=1e-4` depuis `imit_bignet_ent02.pt` (seed20) : bien plus faible que `lr=3e-5`
+## `lr=1e-4` from `imit_bignet_ent02.pt` (seed20): much weaker than `lr=3e-5`
 
-Meme protocole, seul le lr change : **eval_avg(45000) = +11.81** -- tres
-en dessous de la moyenne confirmee a `lr=3e-5` (24.42, std=1.05 sur 3
-seeds). Ecart (~12.6 points) largement au-dela du bruit inter-seeds
-observe a `lr=3e-5`, donc probablement pas un simple seed malchanceux :
-`lr=3e-5` semble specifiquement necessaire pour exploiter ce nouveau
-point de depart, contrairement au petit `CardNet` ou `lr=3e-5` et
-`lr=1e-4` etaient statistiquement indiscernables. Un seul seed pour
-l'instant a `lr=1e-4` -- pas encore de seeds supplementaires prevus, ce
-point est secondaire par rapport a la confirmation n=3 de `lr=3e-5`.
+Same protocol, only the lr changes: **eval_avg(45000) = +11.81** -- well
+below the confirmed `lr=3e-5` mean (24.42, std=1.05 over 3 seeds). The
+gap (~12.6 points) is far beyond the inter-seed noise observed at
+`lr=3e-5`, so probably not just an unlucky seed: `lr=3e-5` appears
+specifically necessary to exploit this new starting point, unlike small
+`CardNet`, where `lr=3e-5` and `lr=1e-4` were statistically
+indistinguishable. Only one seed for now at `lr=1e-4` -- no more seeds
+planned yet, this point is secondary compared to `lr=3e-5`'s n=3
+confirmation.
 
-## Etape 2 du plan : tronc partage acteur/critic + critic centralise
+## Step 2 of the plan: shared actor/critic trunk + centralized critic
 
-Implemente (pas encore teste en conditions reelles) : `SharedTrunkActorCritic`
-(`coinche/rl_agent.py`) et `SharedTrunkPPOPolicy` (`train_ppo.py`,
+Implemented (not yet tested under real conditions): `SharedTrunkActorCritic`
+(`coinche/rl_agent.py`) and `SharedTrunkPPOPolicy` (`train_ppo.py`,
 `--architecture shared`).
 
-Architecture (discussion du 2026-07-27) :
-- **Tronc partage** (acteur + critic) : les 2 premieres couches de
-  `CardNetBig` (`167->128->128`, GELU + LayerNorm Pre-LN) -- memes noms
-  de parametres que `CardNetBig` pour pouvoir reprendre un
-  `imit_bignet_ent02.pt` deja entraine comme point de depart
-  (`SharedTrunkActorCritic.load_actor_from_cardnetbig`, verifie bit a bit
-  identique a `CardNetBig` sur le meme checkpoint).
-- **Tete acteur** : continue seule, `128->64->32` -- identique en
-  forme/noms a la 2e moitie de `CardNetBig`, comportement de la policy
-  inchange a poids egaux.
-- **Tete critic** : recoit en plus l'info centralisee (mains des 3
-  autres, 96-dim, deja dans `encode_full_state`) via une seule couche
-  separee (`96->32`, choix delibere : role plus structurel que
-  strategique, discussion du 2026-07-27), concatenee a la sortie du
-  tronc partage (`128+32=160`) avant 1 couche cachee privee (`160->64`)
-  puis la sortie scalaire.
-- Pas de taches auxiliaires dans cette premiere version (decision du
-  2026-07-27 : isoler l'effet du tronc partage seul avant d'ajouter cette
-  complexite).
+Architecture (2026-07-27 discussion):
+- **Shared trunk** (actor + critic): `CardNetBig`'s first 2 layers
+  (`167->128->128`, GELU + Pre-LN LayerNorm) -- same parameter names as
+  `CardNetBig` so an already-trained `imit_bignet_ent02.pt` can be reused
+  as a starting point (`SharedTrunkActorCritic.load_actor_from_cardnetbig`,
+  verified bit-for-bit identical to `CardNetBig` on the same checkpoint).
+- **Actor head**: continues on its own, `128->64->32` -- identical in
+  shape/names to `CardNetBig`'s second half, the policy's behavior
+  unchanged at equal weights.
+- **Critic head**: additionally receives the centralized info (the 3
+  others' hands, 96-dim, already in `encode_full_state`) through a single
+  separate layer (`96->32`, a deliberate choice: a more structural than
+  strategic role, 2026-07-27 discussion), concatenated to the shared
+  trunk's output (`128+32=160`) before 1 private hidden layer (`160->64`)
+  then the scalar output.
+- No auxiliary tasks in this first version (2026-07-27 decision: isolate
+  the shared trunk's effect alone before adding this complexity).
 
-Le point cle par rapport aux 4 tentatives precedentes sur le critic
-(toutes avec un `ValueNet` totalement independant de `CardNet`) : ici le
-gradient de `value_loss` traverse aussi le tronc partage, donc l'info
-centralisee peut enfin influencer la representation que l'acteur utilise
--- mecanisme qui manquait par construction a toutes les tentatives
-anterieures.
+The key point relative to the 4 previous critic attempts (all with a
+`ValueNet` entirely independent of `CardNet`): here `value_loss`'s
+gradient also flows through the shared trunk, so the centralized info can
+finally influence the representation the actor uses -- a mechanism every
+previous attempt lacked by construction.
 
-Smoke-teste bout en bout (chargement depuis `imit_bignet_ent02.pt`, 200
-episodes d'entrainement, sauvegarde/rechargement, `eval_policy.py
---architecture shared`) -- aucune erreur.
+Smoke-tested end to end (loading from `imit_bignet_ent02.pt`, 200 training
+episodes, save/reload, `eval_policy.py --architecture shared`) -- no errors.
 
-### Premiers runs reels : interference value/policy a travers le tronc, puis correction
+### First real runs: value/policy interference through the trunk, then a fix
 
-Premier run complet (100k episodes, `lr=3e-5`, `epochs=8, value-coef=0.5`
--- memes hyperparametres PPO que la reference `CardNet`) depuis
-`imit_bignet_ent02.pt` : **eval_avg(45000) = +12.58**, nettement sous la
-reference REINFORCE (24.42, n=3) et meme legerement sous le plateau
-`CardNet` simple (~15.1-15.2). Trajectoire d'entrainement clairement
-plus bruitee que d'habitude (`clip_frac` 5-6%, contre <2% partout
-ailleurs dans cette session) -- signe d'interference value/policy a
-travers le tronc partage, exactement le probleme historique qui avait
-fait abandonner l'architecture PPO d'origine (`ActorCriticNet`, avant
-que `policy_net`/`value_net` ne deviennent independants).
+First full run (100k episodes, `lr=3e-5`, `epochs=8, value-coef=0.5` --
+the same PPO hyperparameters as the `CardNet` reference) from
+`imit_bignet_ent02.pt`: **eval_avg(45000) = +12.58**, clearly below the
+REINFORCE reference (24.42, n=3) and even slightly below the plain
+`CardNet` plateau (~15.1-15.2). Training trajectory clearly noisier than
+usual (`clip_frac` 5-6%, vs <2% everywhere else this session) -- a sign of
+value/policy interference through the shared trunk, exactly the
+historical problem that had led to abandoning the original PPO
+architecture (`ActorCriticNet`, before `policy_net`/`value_net` became
+independent).
 
-Balayage exploratoire (seed20 pour tous, `lr=3e-5` fixe) pour corriger
-ca :
+Exploratory sweep (seed20 for all, `lr=3e-5` fixed) to fix this:
 
-| epochs | value_coef | eval_avg(45000) | clip_frac (fin de run) |
+| epochs | value_coef | eval_avg(45000) | clip_frac (end of run) |
 |---|---|---|---|
 | 8 | 0.5 | +12.58 | 5.2% |
 | 4 | 0.5 | +20.53 | 1.9% |
@@ -330,15 +317,15 @@ ca :
 | 4 | 0.1 | +24.42 | 1.0% |
 | **4** | **0.2** | **+27.80** | 2.2% |
 
-Les deux facteurs comptent : passer de `epochs=8` a `epochs=4` (a
-`value_coef` inchange) fait deja la moitie du chemin (12.58 -> 20.53,
-`clip_frac` revenu a une plage normale) -- avec un tronc partage, chaque
-passe met a jour la representation depuis les deux pertes, donc 8 passes
-semble sur-perturber le tronc. Baisser `value_coef` en plus ajoute un
-gain supplementaire, avec un optimum apparent autour de 0.2 (0.1 et 0.3
-donnent des resultats proches mais legerement inferieurs).
+Both factors matter: going from `epochs=8` to `epochs=4` (with
+`value_coef` unchanged) already covers half the gap (12.58 -> 20.53,
+`clip_frac` back to a normal range) -- with a shared trunk, every pass
+updates the representation from both losses, so 8 passes seems to
+over-perturb the trunk. Lowering `value_coef` on top adds a further gain,
+with an apparent optimum around 0.2 (0.1 and 0.3 give close but slightly
+lower results).
 
-### Confirmation a n=4 de la meilleure config (`epochs=4, value_coef=0.2`)
+### Confirmation at n=4 of the best config (`epochs=4, value_coef=0.2`)
 
 | seed | eval_avg(45000) |
 |---|---|
@@ -347,316 +334,307 @@ donnent des resultats proches mais legerement inferieurs).
 | 22 | +25.23 |
 | 23 | +23.28 |
 
-Moyenne **24.60**, ecart-type **2.50** (n=4) -- a comparer a REINFORCE
-depuis le meme `imit_bignet_ent02.pt` (moyenne 24.42, ecart-type 1.05,
-n=3). **Les deux moyennes sont quasiment identiques** (ecart de 0.18
-point) : le tronc partage egale la meilleure config connue, sans la
-depasser, avec une variance entre seeds plus large (2.50 contre 1.05).
+Mean **24.60**, std **2.50** (n=4) -- to compare against REINFORCE from
+the same `imit_bignet_ent02.pt` (mean 24.42, std 1.05, n=3). **The two
+means are nearly identical** (a 0.18-point gap): the shared trunk matches
+the best known config, without beating it, with wider inter-seed variance
+(2.50 vs 1.05).
 
-**Conclusion** : le mecanisme fonctionne -- contrairement aux 4
-tentatives precedentes sur le critic (toutes avec un `ValueNet`
-independant), ici le partage de tronc ne degrade pas la performance une
-fois les hyperparametres correctement recalibres pour cette architecture
-(moins d'epochs, `value_coef` plus bas) -- mais aucune preuve d'un gain
-net par rapport a REINFORCE simple depuis le meme point de depart, meme
-a n=4. Piste suivante (cf. discussion du 2026-07-27, `rl_experiments_v5/`) :
-le critic centralise a un raccourci (la branche info-centralisee) qui
-dilue son propre gradient sur le tronc partage -- une tache auxiliaire
-placee SEULEMENT sur le tronc (sans ce raccourci) pourrait avoir un effet
-plus fort, propre a tester separement.
+**Conclusion**: the mechanism works -- unlike the 4 previous critic
+attempts (all with an independent `ValueNet`), here sharing the trunk
+doesn't hurt performance once the hyperparameters are correctly
+recalibrated for this architecture (fewer epochs, lower `value_coef`) --
+but no proof of a net gain over plain REINFORCE from the same starting
+point, even at n=4. Next idea (cf. the 2026-07-27 discussion,
+`rl_experiments_v5/`): the centralized critic has a shortcut (the
+centralized-info branch) that dilutes its own gradient on the shared
+trunk -- an auxiliary task placed SOLELY on the trunk (without that
+shortcut) might have a stronger effect, worth testing separately.
 
-**A faire si on veut poursuivre** :
-- Plus de seeds a `epochs=4, value_coef=0.2` pour trancher si le tronc
-  partage bat reellement REINFORCE ou l'egale seulement.
-- Essayer d'autres `value_coef` autour de 0.2 (ex. 0.15, 0.25) avec
-  plusieurs seeds, vu qu'un seul seed par point ne permet pas de
-  distinguer un vrai optimum du bruit.
-- Ajouter les taches auxiliaires (atouts/AS restants des 3 autres,
-  discussion initiale du plan) maintenant que le tronc partage seul
-  fonctionne au moins aussi bien que REINFORCE.
+**To do if continuing**:
+- More seeds at `epochs=4, value_coef=0.2` to settle whether the shared
+  trunk actually beats REINFORCE or just matches it.
+- Try other `value_coef` values around 0.2 (e.g. 0.15, 0.25) with several
+  seeds, since a single seed per point can't distinguish a real optimum
+  from noise.
+- Add the auxiliary tasks (remaining trumps/aces of the 3 others, the
+  plan's initial discussion) now that the shared trunk alone works at
+  least as well as REINFORCE.
 
-## Pool grandissant depuis `imit_bignet_ent02.pt` : meilleur resultat de la session (seed40, n=1)
+## Growing pool from `imit_bignet_ent02.pt`: this session's best result (seed40, n=1)
 
-Apres que la piste critic/auxiliaire (tronc partage, puis tache auxiliaire
-dans `rl_experiments_v5/`) n'ait rien donne de net au-dela de REINFORCE
-seul, retour a l'autre resultat structurel confirme cette session : le
-pool grandissant en self-play PFSP (`rl_experiments_v3/README.md`, n=3
-REINFORCE + n=2 PPO, jamais teste avec `CardNetBig`/l'imitation a entropie
-cible). Les deux gains n'avaient jamais ete empiles.
+After the critic/auxiliary idea (shared trunk, then the auxiliary task in
+`rl_experiments_v5/`) produced nothing clearly beyond plain REINFORCE,
+back to this session's other confirmed structural result: the growing
+self-play PFSP pool (`rl_experiments_v3/README.md`, n=3 REINFORCE + n=2
+PPO, never tested with `CardNetBig`/entropy-targeted imitation). The two
+gains had never been stacked.
 
 `run_growing_pool.py --architecture big --init-load imit_bignet_ent02.pt
 --lr 3e-5 --total-episodes 300000 --segment-episodes 50000 --seed-start 40`
-(6 segments, `rl_experiments_v4/exp_growing_pool_bignet/`). Corrige au
-passage un bug latent dans `train.py` (`make_opponent_factory`/
-`build_opponent_pool` instanciaient toujours `NeuralPolicy(net_cls=CardNet)`
-pour un adversaire fige du pool, jamais un probleme tant que le pool ne
-contenait que des checkpoints `CardNet` -- `load_state_dict` aurait echoue
-des le segment 2 avec un pool en `CardNetBig`). Tous les 6 segments
-tournes proprement (18.5 a 35 min chacun, legere hausse avec la taille du
-pool ; PFSP pioche bien parmi tous les membres du pool a des win_rate
-sains 0.49-0.60, aucun signe de collapse).
+(6 segments, `rl_experiments_v4/exp_growing_pool_bignet/`). Fixed a
+latent bug along the way in `train.py` (`make_opponent_factory`/
+`build_opponent_pool` always instantiated `NeuralPolicy(net_cls=CardNet)`
+for a frozen pool opponent, never an issue as long as the pool only
+contained `CardNet` checkpoints -- `load_state_dict` would have failed
+starting at segment 2 with a `CardNetBig` pool). All 6 segments ran
+cleanly (18.5 to 35 min each, slightly rising with the pool size; PFSP
+samples well across every pool member at healthy 0.49-0.60 win rates, no
+sign of collapse).
 
-**eval_avg(45000) = +31.70**, win_rate=56.3% -- au-dessus de la reference
-REINFORCE fixe depuis le meme point de depart (+25.04 pour ce seed
-precis, moyenne 24.42/n=3) et du tronc partage (24.60, n=4). **Meilleur
-resultat obtenu dans toute cette session de RL.**
+**eval_avg(45000) = +31.70**, win_rate=56.3% -- above the fixed REINFORCE
+reference from the same starting point (+25.04 for this exact seed, mean
+24.42/n=3) and the shared trunk (24.60, n=4). **The best result obtained
+in this whole RL session.**
 
-**Un seul seed pour l'instant** -- l'ecart (~6-7 points au-dessus des
-meilleures references) depasse la variance inter-seeds habituelle
-(std 1.05 a 2.50 selon l'architecture), donc c'est prometteur, mais pas
-encore confirme. **A faire avant de conclure** : au moins 2 seeds de plus
-(`--seed-start 41` et `42` par exemple, memes hyperparametres) pour
-confirmer que le gain tient, meme rigueur que partout ailleurs dans cette
-session.
+**Only one seed for now** -- the gap (~6-7 points above the best
+references) exceeds the usual inter-seed variance (std 1.05 to 2.50
+depending on the architecture), so it's promising, but not yet confirmed.
+**To do before concluding**: at least 2 more seeds (`--seed-start 41` and
+`42` for instance, same hyperparameters) to confirm the gain holds, the
+same rigor as everywhere else this session.
 
-### Round-robin (`eval_matchup.py`, n=10000) : le gain se confirme, pas juste un artefact de `eval_avg`
+### Round-robin (`eval_matchup.py`, n=10000): the gain is confirmed, not just an `eval_avg` artifact
 
-Meme demarche que la validation du pool grandissant en v3 (cf.
-`rl_experiments_v3/README.md`) : `eval_avg` contre heuristic seul ne
-mesure que l'exploitation d'un adversaire fixe, pas la polyvalence.
-Ajoute `--architecture` a `eval_matchup.py` (ne supportait jusqu'ici que
-`PPOPolicy()` en dur/`CardNet` petit -- meme convention que
-`eval_policy.py`) pour pouvoir l'utiliser sur des checkpoints
-`CardNetBig`.
+The same approach as validating the growing pool in v3 (cf.
+`rl_experiments_v3/README.md`): `eval_avg` against heuristic alone only
+measures exploitation of a fixed opponent, not versatility. Added
+`--architecture` to `eval_matchup.py` (until now it only supported a
+hardcoded `PPOPolicy()`/small `CardNet` -- the same convention as
+`eval_policy.py`) so it can be used on `CardNetBig` checkpoints.
 
-4 specs, 6 appariements (n=10000, seed=42) : `heuristic`, la reference
-"vanille" de cette lignee (`exp_reinforce_bignet_ent02_lr3e-5_seed20/
-reinforce_100000.pt`, +25.04 en `eval_avg`), le checkpoint precoce du
-pool (`seg_50000`) et le checkpoint final (`seg_300000`).
+4 specs, 6 matchups (n=10000, seed=42): `heuristic`, this lineage's
+"vanilla" reference (`exp_reinforce_bignet_ent02_lr3e-5_seed20/
+reinforce_100000.pt`, +25.04 in `eval_avg`), the pool's early checkpoint
+(`seg_50000`), and the final checkpoint (`seg_300000`).
 
-Force moyenne (corrigee du biais de siege, `skill(X,Y) = ((X vs Y) -
-(Y vs X))/2`, meme methode qu'en v3) :
+Average strength (seat-bias-corrected, `skill(X,Y) = ((X vs Y) -
+(Y vs X))/2`, the same method as in v3):
 
-| | force moyenne |
+| | average strength |
 |---|---|
-| **pool bignet, seg_300000 (final)** | **+18.97** |
-| vanille (REINFORCE bignet simple) | +6.43 |
-| pool bignet, seg_50000 (precoce) | +0.31 |
+| **bignet pool, seg_300000 (final)** | **+18.97** |
+| vanilla (plain bignet REINFORCE) | +6.43 |
+| bignet pool, seg_50000 (early) | +0.31 |
 | heuristic | -25.71 |
 
-**Meme pattern qu'en v3, sans exception, et avec un ecart plus marque** :
-le checkpoint final du pool bat nettement la vanille en tete-a-tete
-direct (+15.88 / -6.38, soit +11.13 une fois corrige du biais de siege)
-et bat tres largement le checkpoint precoce (+20.08 / -9.52, soit +14.8
-corrige) ; le precoce lui-meme ne se distingue pas clairement de la
-vanille (+0.31 vs +6.43, dans le meme ordre de grandeur que la variance
-observee en v3 entre config proches). Le gain de +31.70 en `eval_avg`
-n'est donc pas (uniquement) un artefact de cette metrique bruitee -- il
-se confirme en tete-a-tete direct, comme pour le pool grandissant "petit
-CardNet" de v3.
+**The same pattern as in v3, without exception, and with a sharper gap**:
+the pool's final checkpoint clearly beats vanilla head-to-head (+15.88 /
+-6.38, i.e. +11.13 once seat-bias corrected) and beats the early
+checkpoint by a wide margin (+20.08 / -9.52, i.e. +14.8 corrected); the
+early checkpoint itself doesn't clearly stand out from vanilla (+0.31 vs
++6.43, on the same order as the variance observed in v3 between similar
+configs). The +31.70 `eval_avg` gain is therefore not (only) an artifact
+of this noisy metric -- it's confirmed head-to-head, as for v3's "small
+CardNet" growing pool.
 
-**Toujours n=1** : reste a confirmer sur 2 seeds supplementaires (comme
-pour v3, ou le pattern a fini par se confirmer identiquement sur 3 seeds
-REINFORCE + 2 PPO) avant de traiter ce resultat comme definitivement
-etabli.
+**Still n=1**: remains to be confirmed on 2 more seeds (as for v3, where
+the pattern ended up confirmed identically over 3 REINFORCE seeds + 2 PPO
+seeds) before treating this result as definitively established.
 
-## `--no-critic-baseline` sur le tronc partage (seed20) : toujours aucun effet net
+## `--no-critic-baseline` on the shared trunk (seed20): still no net effect
 
-Debloque `--no-critic-baseline` pour `--architecture shared` (jusqu'ici
-interdit par le code) : avantage = retour centre/normalise sur le batch
-(comme REINFORCE), la tete critic n'est ni appelee ni entrainee
-(`value_loss` reste a 0 tout du long -- verifie). Question posee : le
-tronc partage est la SEULE architecture ou le critic a un vrai canal de
-gradient vers l'acteur (contrairement aux 4 tentatives anterieures avec
-un `ValueNet` independant, toutes sans effet mesurable) -- est-ce que
-cette fois sa baseline sert vraiment a quelque chose ?
+Unlocked `--no-critic-baseline` for `--architecture shared` (previously
+forbidden by the code): advantage = return centered/normalized on the
+batch (REINFORCE-style), the critic head is neither called nor trained
+(`value_loss` stays at 0 throughout -- verified). Question asked: is the
+shared trunk the ONLY architecture where the critic has a real gradient
+channel to the actor (unlike the 4 previous attempts with an independent
+`ValueNet`, all with no measurable effect) -- does its baseline actually
+serve a purpose this time?
 
-Meme protocole exact que la reference (`lr=3e-5, epochs=4, value_coef=0.2`
--- ce dernier n'a plus d'effet ici puisque `value_loss=0`), **meme
-seed20** que la reference deja connue, pour une comparaison directe :
-
-| | eval_avg(45000) |
-|---|---|
-| seed20, avec critic (`value_coef=0.2`) | +27.80 |
-| seed20, **sans** critic (`--no-critic-baseline`) | +24.03 |
-
-Comparaison brute seed-a-seed : -3.77 points, l'air d'une degradation.
-**Mais lue contre la vraie distribution des 4 seeds deja confirmes avec
-critic (22.09 / 23.28 / 25.23 / **27.80**, moyenne 24.60, ecart-type
-2.50)**, +24.03 tombe confortablement DANS cette fourchette, tres proche
-de la moyenne -- et `27.80` (seed20 avec critic) est justement le PLUS
-HAUT des 4 seeds connus, pas un point typique. Comparer "sans critic" a
-specifiquement ce seed-la (le plus favorable au critic) plutot qu'a la
-moyenne du groupe biaise la lecture vers "le critic aide" alors que rien
-ne le montre clairement une fois la variance inter-seeds prise en compte.
-
-**Lecture honnete (n=1 pour la config sans critic, prudence de rigueur)** :
-aucune preuve que le critic apporte un gain net sur le tronc partage non
-plus -- **7e resultat consecutif de ce type dans le projet** (apres 4
-tentatives sur un `ValueNet` independant + le tronc partage lui-meme qui
-egale seulement REINFORCE) : la baseline du critic ne montre son
-utilite nulle part dans ce code, meme la ou elle a enfin un vrai canal
-vers l'acteur. Poursuivre exigerait 2-3 seeds de plus en
-`--no-critic-baseline` pour un vrai test statistique contre la
-distribution n=4 existante -- pas encore fait, piste pour plus tard.
-
-## `SharedTrunkActorCriticDeep` (tronc 3 couches, tete acteur 1 couche) : premier test, seed20
-
-Rebalancement de `SharedTrunkActorCritic` (design exact fourni par
-l'utilisateur, discussion du 2026-07-28) : tronc plus profond
-(`167->128->128->64`, 3 couches -- couvre EXACTEMENT les 3 premieres
-couches de `CardNetBig`) et tete acteur plus courte (`64->32`, 1 seule
-couche -- la derniere de `CardNetBig`), au lieu du decoupage 2+2
-actuel. Tete critic : branche centralisee `96->64` (egale a la dim de
-sortie du tronc, fusion plus equilibree que l'ancien 128 vs 32), 1
-couche privee `128->32`, sortie `32->1`.
-
-Classe independante (`coinche/rl_agent.py`), jamais modifie
-`SharedTrunkActorCritic` en place. `load_actor_from_cardnetbig` remappe
-`imit_bignet_ent02.pt` sans aucune perte (le split tronc/tete correspond
-exactement aux 4 couches de `CardNetBig`) -- verifie bit a bit identique,
-donc **pas besoin de retrain l'imitation**. `SharedTrunkPPOPolicy` gagne
-un parametre `net_cls` (comme `PPOPolicy`) au lieu d'une classe wrapper
-dupliquee. Nouveau choix `--architecture shared_deep`.
-
-Meme protocole exact que la reference (`lr=3e-5, epochs=4,
-value_coef=0.2`, depuis `imit_bignet_ent02.pt`, seed20 -- meme seed que
-les 2 autres variantes deja testees, pour comparaison directe).
-Entrainement sain tout du long (`clip_frac` normal, pas de collapse).
+Exactly the same protocol as the reference (`lr=3e-5, epochs=4,
+value_coef=0.2` -- the latter no longer has any effect here since
+`value_loss=0`), **the same seed20** as the already-known reference, for
+a direct comparison:
 
 | | eval_avg(45000) |
 |---|---|
-| Tronc original (2+2), seed20, avec critic | +27.80 |
-| Tronc original (2+2), seed20, sans critic | +24.03 |
-| **Tronc profond (3+1), seed20, avec critic** | **+23.70** |
-| Tronc original, moyenne n=4 | 24.60 (std 2.50, range 22.09-27.80) |
-| REINFORCE simple, moyenne n=3 | 24.42 (std 1.05) |
+| seed20, with critic (`value_coef=0.2`) | +27.80 |
+| seed20, **without** critic (`--no-critic-baseline`) | +24.03 |
 
-**Lecture honnete (n=1)** : `+23.70` tombe confortablement dans la
-distribution deja etablie du tronc original (22.09-27.80), tres proche
-de sa moyenne (24.60) et de celle de REINFORCE (24.42). Compare
-specifiquement au seed20 original (27.80) ca semble moins bon, mais ce
-seed-la est le plus haut des 4 connus (meme piege de lecture que pour
-`--no-critic-baseline` ci-dessus) -- pas une comparaison juste. **Aucune
-preuve que rebalancer tronc/tete change quoi que ce soit**, dans un sens
-ou dans l'autre. A confirmer sur plus de seeds si on veut trancher, mais
-rien d'urgent vu ce premier point neutre.
+Raw seed-to-seed comparison: -3.77 points, looks like a degradation.
+**But read against the true distribution of the 4 already-confirmed
+with-critic seeds (22.09 / 23.28 / 25.23 / **27.80**, mean 24.60, std
+2.50)**, +24.03 lands comfortably WITHIN that range, very close to the
+mean -- and `27.80` (seed20 with critic) happens to be the HIGHEST of the
+4 known seeds, not a typical point. Comparing "no critic" specifically to
+that one seed (the most favorable to the critic) rather than to the
+group's mean biases the reading toward "the critic helps" when nothing
+clearly shows that once inter-seed variance is accounted for.
 
-### Seed21 : confirme, tres serre autour du meme point neutre
+**Honest reading (n=1 for the no-critic config, caution warranted)**: no
+proof the critic brings a net gain on the shared trunk either -- **this
+project's 7th consecutive result of this kind** (after 4 attempts with an
+independent `ValueNet` + the shared trunk itself, which only matches
+REINFORCE): the critic's baseline shows its usefulness nowhere in this
+code, even where it finally has a real channel to the actor. Continuing
+would require 2-3 more seeds at `--no-critic-baseline` for a real
+statistical test against the existing n=4 distribution -- not done yet, a
+later idea.
 
-Meme protocole exact, seed21 : **eval_avg(45000) = +22.78**.
+## `SharedTrunkActorCriticDeep` (3-layer trunk, 1-layer actor head): first test, seed20
+
+A rebalancing of `SharedTrunkActorCritic` (the user's exact design,
+2026-07-28 discussion): a deeper trunk (`167->128->128->64`, 3 layers --
+covering EXACTLY `CardNetBig`'s first 3 layers) and a shorter actor head
+(`64->32`, a single layer -- `CardNetBig`'s last one), instead of the
+current 2+2 split. Critic head: a centralized branch `96->64` (equal to
+the trunk's output dim, a more balanced merge than the old 128 vs 32), 1
+private layer `128->32`, output `32->1`.
+
+An independent class (`coinche/rl_agent.py`), `SharedTrunkActorCritic`
+never modified in place. `load_actor_from_cardnetbig` remaps
+`imit_bignet_ent02.pt` with no loss at all (the trunk/head split matches
+exactly `CardNetBig`'s 4 layers) -- verified bit-for-bit identical, so
+**no need to retrain imitation**. `SharedTrunkPPOPolicy` gains a `net_cls`
+parameter (like `PPOPolicy`) instead of a duplicated wrapper class. New
+`--architecture shared_deep` choice.
+
+Exactly the same protocol as the reference (`lr=3e-5, epochs=4,
+value_coef=0.2`, from `imit_bignet_ent02.pt`, seed20 -- the same seed as
+the 2 other already-tested variants, for a direct comparison). Training
+healthy throughout (normal `clip_frac`, no collapse).
+
+| | eval_avg(45000) |
+|---|---|
+| Original trunk (2+2), seed20, with critic | +27.80 |
+| Original trunk (2+2), seed20, without critic | +24.03 |
+| **Deep trunk (3+1), seed20, with critic** | **+23.70** |
+| Original trunk, mean n=4 | 24.60 (std 2.50, range 22.09-27.80) |
+| Plain REINFORCE, mean n=3 | 24.42 (std 1.05) |
+
+**Honest reading (n=1)**: `+23.70` lands comfortably within the original
+trunk's already-established distribution (22.09-27.80), very close to its
+mean (24.60) and REINFORCE's (24.42). Compared specifically to the
+original seed20 (27.80) it looks worse, but that seed is the highest of
+the 4 known ones (the same reading trap as for `--no-critic-baseline`
+above) -- not a fair comparison. **No proof that rebalancing trunk/head
+changes anything**, either way. To be confirmed over more seeds if
+settling it matters, but nothing urgent given this first neutral point.
+
+### Seed21: confirmed, very tight around the same neutral point
+
+Exactly the same protocol, seed21: **eval_avg(45000) = +22.78**.
 
 | seed | eval_avg(45000) |
 |---|---|
 | 20 | +23.70 |
 | 21 | +22.78 |
 
-Moyenne **23.24**, ecart-type **0.65** (n=2) -- tres serre, les deux
-seeds quasi indiscernables l'un de l'autre. Confirme la lecture du seed20
-seul : `SharedTrunkActorCriticDeep` tombe pile dans la distribution du
-tronc original (22.09-27.80, moyenne 24.60, n=4) et pres de REINFORCE
-(24.42, n=3), sans aucun signe d'amelioration ni de degradation.
-Rebalancer tronc/tete (3 couches partagees + 1 privee, au lieu de 2+2)
-ne semble donc rien changer, du moins a cette echelle de test -- piste
-neutre, pas prioritaire pour l'instant face au pool grandissant qui reste
-la seule direction ayant clairement depasse ce plateau.
+Mean **23.24**, std **0.65** (n=2) -- very tight, the two seeds nearly
+indistinguishable from each other. Confirms seed20's reading alone:
+`SharedTrunkActorCriticDeep` lands right within the original trunk's
+distribution (22.09-27.80, mean 24.60, n=4) and near REINFORCE (24.42,
+n=3), with no sign of improvement or degradation. Rebalancing trunk/head
+(3 shared layers + 1 private, instead of 2+2) therefore doesn't seem to
+change anything, at least at this test scale -- a neutral idea, not a
+priority for now compared to the growing pool, which remains the only
+direction to have clearly beaten this plateau.
 
-## Pool grandissant + tronc partage (original, seed-start 60) : pas de gain net, contrairement au run bignet
+## Growing pool + shared trunk (original, seed-start 60): no net gain, unlike the bignet run
 
-Apres le pool grandissant + `CardNetBig`/REINFORCE (+31.70, meilleur
-resultat de la session), meme experience avec le tronc partage
-(`SharedTrunkActorCritic` original, 2+2, `value_coef=0.2` -- pas la
-variante `Deep`, choisie deliberement pour isoler une seule variable a
-la fois par rapport a une architecture deja bien caracterisee, n=4).
+After the growing pool + `CardNetBig`/REINFORCE (+31.70, this session's
+best result), the same experiment with the shared trunk
+(`SharedTrunkActorCritic` original, 2+2, `value_coef=0.2` -- not the
+`Deep` variant, deliberately chosen to isolate a single variable at a
+time against an already well-characterized architecture, n=4).
 
 `run_growing_pool_ppo.py --architecture shared --init-load
 imit_bignet_ent02.pt --lr 3e-5 --epochs 4 --value-coef 0.2
 --total-episodes 300000 --segment-episodes 50000 --seed-start 60` (6
-segments, `rl_experiments_v4/exp_growing_pool_shared/`). Tous les
-segments tournes proprement (1151-1937s, meme hausse graduelle
-qu'ailleurs ; confirme au passage que le fix `SharedTrunkActorCritic.
-forward()` pour charger un adversaire fige `shared` dans le pool
-fonctionne en conditions reelles, pas juste au smoke-test).
+segments, `rl_experiments_v4/exp_growing_pool_shared/`). All segments ran
+cleanly (1151-1937s, the same gradual rise as elsewhere; also confirmed
+along the way that the `SharedTrunkActorCritic.forward()` fix for loading
+a frozen `shared` opponent in the pool works under real conditions, not
+just in the smoke test).
 
 | | eval_avg(45000) |
 |---|---|
-| Tronc partage simple (seed20, sans pool) | +27.80 |
-| Pool, precoce (seg_50000) | +19.85 |
+| Plain shared trunk (seed20, no pool) | +27.80 |
+| Pool, early (seg_50000) | +19.85 |
 | **Pool, final (seg_300000)** | **+25.21** |
-| Tronc partage simple, moyenne n=4 | 24.60 (std 2.50, range 22.09-27.80) |
+| Plain shared trunk, mean n=4 | 24.60 (std 2.50, range 22.09-27.80) |
 
-**Premiere lecture (via `eval_avg` seul)** : compare au seed20 precis
-(27.80), le pool final semble regresser -- mais 27.80 est encore une
-fois le plus haut des 4 seeds connus (meme piege que pour les 2 lectures
-precedentes de cette session). Compare a la distribution complete
-(22.09-27.80, moyenne 24.60), +25.21 tombe pile dedans, essentiellement
-a la moyenne : `eval_avg` seul ne montre **aucun gain net** par rapport
-au tronc partage sans pool.
+**First reading (via `eval_avg` alone)**: compared to the exact seed20
+(27.80), the pool's final checkpoint looks like a regression -- but 27.80
+is again the highest of the 4 known seeds (the same trap as this
+session's 2 previous readings). Compared to the full distribution
+(22.09-27.80, mean 24.60), +25.21 lands right within it, essentially at
+the mean: `eval_avg` alone shows **no net gain** over the shared trunk
+without a pool.
 
-### Round-robin (`eval_matchup.py`, n=10000) : le gain existe bel et bien, invisible dans `eval_avg` seul
+### Round-robin (`eval_matchup.py`, n=10000): the gain does exist, invisible in `eval_avg` alone
 
-Meme demarche que pour le run bignet+REINFORCE : 4 specs (heuristic,
-tronc partage simple seed20, pool precoce `seg_50000`, pool final
-`seg_300000`), n=10000, seed=42. Force moyenne (corrigee du biais de
-siege) :
+The same approach as for the bignet+REINFORCE run: 4 specs (heuristic,
+plain shared trunk seed20, pool early `seg_50000`, pool final
+`seg_300000`), n=10000, seed=42. Average strength (seat-bias-corrected):
 
-| | force moyenne |
+| | average strength |
 |---|---|
 | **Pool, final (seg_300000)** | **+15.45** |
-| Tronc partage simple (sans pool) | +9.00 |
-| Pool, precoce (seg_50000) | -0.11 |
+| Plain shared trunk (no pool) | +9.00 |
+| Pool, early (seg_50000) | -0.11 |
 | heuristic | -24.34 |
 
-**Meme pattern exceptionless qu'en v3 et que pour le run bignet** : final
-> simple sans pool > precoce > heuristic. Le pool final bat la version
-simple en tete-a-tete direct (+10.00 / -4.72, soit +7.36 corrige) et
-ecrase le pool precoce (+16.51 / -11.11, soit +13.81 corrige) ; la
-version simple bat elle-meme le precoce (+9.13 / -3.43, soit +6.28
-corrige).
+**The same exceptionless pattern as in v3 and as for the bignet run**:
+final > plain without pool > early > heuristic. The final pool checkpoint
+beats the plain version head-to-head (+10.00 / -4.72, i.e. +7.36
+corrected) and crushes the early pool checkpoint (+16.51 / -11.11, i.e.
++13.81 corrected); the plain version itself beats the early one (+9.13 /
+-3.43, i.e. +6.28 corrected).
 
-**Ca contredit la premiere lecture base sur `eval_avg` seul** : il y a
-bel et bien un gain reel de polyvalence (+6.45 points de force corrigee
-entre pool-final et simple), du meme ordre de grandeur que le gain vu
-pour le pool bignet -- simplement invisible face a heuristic seul, la
-lecon exacte de v3 (`eval_avg` contre un seul adversaire fixe ne mesure
-que l'exploitation de cet adversaire, pas la polyvalence reelle). Le
-pool grandissant apporte donc bien un gain avec le tronc partage/PPO
-aussi, contrairement a ce que suggerait la premiere lecture -- **un seul
-seed pour l'instant**, a confirmer sur plus de seeds avant de conclure
-definitivement, meme rigueur que partout ailleurs dans cette session.
+**This contradicts the first reading based on `eval_avg` alone**: there
+is indeed a real versatility gain (+6.45 points of corrected strength
+between pool-final and plain), on the same order as the gain seen for the
+bignet pool -- simply invisible against heuristic alone, exactly v3's
+lesson (`eval_avg` against a single fixed opponent only measures
+exploitation of that opponent, not real versatility). So the growing pool
+does bring a gain with the shared trunk/PPO too, contrary to what the
+first reading suggested -- **only one seed for now**, to be confirmed
+over more seeds before concluding definitively, the same rigor as
+everywhere else this session.
 
-## Face-a-face direct : pool bignet+REINFORCE vs pool tronc partage+PPO (n=100000)
+## Direct head-to-head: bignet+REINFORCE pool vs shared-trunk+PPO pool (n=100000)
 
-Les deux meilleurs resultats de la session (pool grandissant + `CardNetBig`/
-REINFORCE, `eval_avg`=+31.70 ; pool grandissant + tronc partage/PPO,
-`eval_avg`=+25.21 mais force de round-robin +15.45) n'avaient jamais ete
-opposes directement l'un a l'autre -- chacun uniquement compare a heuristic
-et a son propre groupe de reference. Ajoute le support du melange
-d'architectures a `eval_matchup.py` (syntaxe `architecture:chemin` par
-spec, ex. `big:seg_300000.pt shared:seg_300000.pt`, jusqu'ici un seul
-`--architecture` pour tout l'appel) pour rendre ce test possible.
+This session's two best results (growing pool + `CardNetBig`/REINFORCE,
+`eval_avg`=+31.70; growing pool + shared trunk/PPO, `eval_avg`=+25.21 but
+round-robin strength +15.45) had never been pitted directly against each
+other -- each only compared to heuristic and to its own reference group.
+Added mixed-architecture support to `eval_matchup.py` (per-spec
+`architecture:path` syntax, e.g. `big:seg_300000.pt shared:seg_300000.pt`,
+previously a single `--architecture` for the whole call) to make this
+test possible.
 
-Round-robin a 3 specs (heuristic, `big:exp_growing_pool_bignet/seg_300000.pt`,
-`shared:exp_growing_pool_shared/seg_300000.pt`), **n=100000** parties par
-appariement (la precision la plus fine de toute la session, ~10x le
-`--games 45000` habituel) :
+A 3-spec round-robin (heuristic, `big:exp_growing_pool_bignet/seg_300000.pt`,
+`shared:exp_growing_pool_shared/seg_300000.pt`), **n=100000** games per
+matchup (this whole session's finest precision, ~10x the usual
+`--games 45000`):
 
 | | avg |
 |---|---|
 | bignet-pool vs shared-pool | -0.17 |
 | shared-pool vs bignet-pool | +1.06 |
 
-Corrige du biais de siege : `skill(bignet, shared) = (-0.17 - 1.06)/2 =
--0.615`. **Statistiquement nul a cette echelle** (n=100000/sens, la plus
-grande precision de toute la session) : les deux checkpoints sont a
-egalite en tete-a-tete direct, malgre des `eval_avg` contre heuristic
-tres differents (+31.70 vs +25.21) et des scores de force de round-robin
-differents dans leurs groupes respectifs (+18.97 vs +15.45 -- mais pas
-calcules contre les memes groupes de reference, donc jamais directement
-comparables entre eux avant ce test).
+Seat-bias corrected: `skill(bignet, shared) = (-0.17 - 1.06)/2 =
+-0.615`. **Statistically null at this scale** (n=100000/direction, this
+whole session's greatest precision): the two checkpoints are tied
+head-to-head, despite very different `eval_avg` against heuristic (+31.70
+vs +25.21) and different round-robin strength scores in their respective
+groups (+18.97 vs +15.45 -- but not computed against the same reference
+groups, so never directly comparable to each other before this test).
 
-**Conclusion** : le pool grandissant apporte un gain reel dans les deux
-cas (confirme separement par round-robin pour chaque architecture), mais
-une fois combine au pool, le choix de l'architecture de base (REINFORCE+
-CardNetBig vs PPO+tronc partage) ne semble plus faire de difference de
-niveau final -- les deux convergent vers une force de jeu similaire.
+**Conclusion**: the growing pool brings a real gain in both cases
+(separately confirmed by round-robin for each architecture), but once
+combined with the pool, the choice of base architecture (REINFORCE+
+CardNetBig vs PPO+shared trunk) no longer seems to make a difference in
+final level -- both converge to a similar playing strength.
 
-## Pool bignet+REINFORCE etendu a 450k (segments 7-9) : `eval_avg` decline, round-robin necessaire pour trancher
+## Bignet+REINFORCE pool extended to 450k (segments 7-9): `eval_avg` declines, round-robin needed to settle it
 
-Meme seed (40, `--start-segment 7` sur `rl_experiments_v4/exp_growing_pool_bignet/`,
-memes hyperparametres) pour voir si la progression continue au-dela de
-300k. Les 3 segments supplementaires tournent proprement (2072-2108s
-chacun, dans la norme).
+Same seed (40, `--start-segment 7` on `rl_experiments_v4/exp_growing_pool_bignet/`,
+same hyperparameters) to see whether progress continues past 300k. The 3
+extra segments ran cleanly (2072-2108s each, within the norm).
 
 | Segment | eval_avg(45000) |
 |---|---|
@@ -665,242 +643,233 @@ chacun, dans la norme).
 | 400k | +29.53 |
 | 450k | +28.70 |
 
-**Lecture prudente** : `eval_avg` contre heuristic seul decline
-graduellement apres 300k -- mais cette metrique seule est connue pour
-etre trompeuse sur un checkpoint entraine en pool (lecon de v3, deja
-confirmee deux fois cette session : le "gain reel" du pool grandissant
-tronc-partage etait invisible dans `eval_avg`, revele seulement par
-round-robin).
+**Cautious reading**: `eval_avg` against heuristic alone gradually
+declines past 300k -- but this metric alone is known to be misleading for
+a pool-trained checkpoint (v3's lesson, already confirmed twice this
+session: the shared-trunk growing pool's "real gain" was invisible in
+`eval_avg`, revealed only by round-robin).
 
-### Round-robin (n=10000) : le "declin" ne se confirme pas en tete-a-tete direct
+### Round-robin (n=10000): the "decline" doesn't hold up head-to-head
 
-4 specs (heuristic, vanille REINFORCE, pool 300k, pool 450k) :
+4 specs (heuristic, vanilla REINFORCE, pool 300k, pool 450k):
 
-**Tete-a-tete direct 300k vs 450k** : 300k vs 450k = -1.60, 450k vs 300k
-= +8.56 -- corrige du biais de siege, **450k bat 300k de +5.08 points**.
-En confrontation directe, 450k n'est donc PAS plus faible que 300k, au
-contraire.
+**Direct head-to-head 300k vs 450k**: 300k vs 450k = -1.60, 450k vs 300k
+= +8.56 -- corrected, **450k beats 300k by +5.08**. Head-to-head, 450k is
+therefore NOT weaker than 300k, quite the opposite.
 
-Force moyenne (contre les 3 autres) :
+Average strength (against the other 3):
 
-| | force moyenne |
+| | average strength |
 |---|---|
 | Pool, 300k | +15.73 |
 | Pool, 450k | +11.40 |
-| Vanille (REINFORCE simple) | +1.51 |
+| Vanilla (plain REINFORCE) | +1.51 |
 | Heuristic | -28.63 |
 
-**Tension apparente, mais pas contradictoire** : dans la force moyenne,
-300k semble devant -- tire par sa meilleure performance contre heuristic
-et vanille (des adversaires plus faibles), un artefact bien connu de ce
-type de classement a peu d'entites (une moyenne sur un petit groupe
-d'adversaires n'est pas forcement transitive avec le tete-a-tete direct
-entre les deux meilleurs). Le tete-a-tete direct reste le signal le plus
-pertinent pour repondre a la question posee ("450k est-il plus faible
-que 300k ?") : la reponse est non, c'est meme legerement l'inverse.
+**An apparent tension, but not a contradiction**: in average strength,
+300k appears to be ahead -- driven by its better performance against
+heuristic and vanilla (weaker opponents), a well-known artifact of this
+kind of small-field ranking (a mean over a small group of opponents isn't
+necessarily transitive with the direct head-to-head between the two
+best). The direct head-to-head remains the most relevant signal to answer
+the question asked ("is 450k weaker than 300k?"): the answer is no, if
+anything the opposite.
 
-**Conclusion (corrigee)** : le "declin" de `eval_avg` ne reflete pas une
-vraie regression -- encore un glissement de specialisation (moins
-d'exploitation d'heuristic specifiquement). Mais contrairement a une
-premiere lecture trop prudente ("essentiellement a egalite"), le
-tete-a-tete montre un **vrai gain**, pas juste une absence de perte :
-+5.08 corrige, coherent dans les deux sens (300k perd dans les deux
-orientations du match), du meme ordre de grandeur que les autres ecarts
-traites comme reels cette session a n=10000 (+6.45, +7.36, +11.13...).
-Continuer l'entrainement jusqu'a 450k a donc reellement aide. Question
-ouverte : est-ce que ca continue a progresser au-dela de 450k, ou est-ce
-la que ca plafonne vraiment ? Pas encore teste.
+**Conclusion (corrected)**: `eval_avg`'s "decline" doesn't reflect a real
+regression -- yet another specialization shift (less exploitation of
+heuristic specifically). But unlike an overly cautious first reading
+("essentially tied"), the head-to-head shows a **real gain**, not just an
+absence of loss: +5.08 corrected, consistent in both directions (300k
+loses in both match orientations), on the same order as this session's
+other gaps treated as real at n=10000 (+6.45, +7.36, +11.13...).
+Continuing training up to 450k therefore genuinely helped. Open question:
+does it keep progressing past 450k, or is that where it truly plateaus?
+Not tested yet.
 
-## Extension a 600k (segments 10-12) : la progression continue, remarquablement lineaire
+## Extension to 600k (segments 10-12): progress continues, remarkably linearly
 
-Meme seed (40), memes hyperparametres, `--start-segment 10` depuis
-`seg_450000.pt`. 3 segments supplementaires sains (1963-2185s chacun).
+Same seed (40), same hyperparameters, `--start-segment 10` from
+`seg_450000.pt`. 3 more healthy segments (1963-2185s each).
 
-Round-robin (4 specs : heuristic, vanille REINFORCE, pool 450k, pool
-600k, n=10000) :
+Round-robin (4 specs: heuristic, vanilla REINFORCE, pool 450k, pool 600k,
+n=10000):
 
-**Tete-a-tete direct 450k vs 600k** : 450k vs 600k = -2.64, 600k vs 450k
-= +7.95 -- corrige, **600k bat 450k de +5.30**. Quasiment le meme ecart
-que 450k vs 300k (+5.08) !
+**Direct head-to-head 450k vs 600k**: 450k vs 600k = -2.64, 600k vs 450k
+= +7.95 -- corrected, **600k beats 450k by +5.30**. Nearly the same gap
+as 450k vs 300k (+5.08)!
 
-Force moyenne (contre les 3 autres) :
+Average strength (against the other 3):
 
-| | force moyenne |
+| | average strength |
 |---|---|
 | **Pool, 600k** | **+19.57** |
 | Pool, 450k | +11.33 |
-| Vanille (REINFORCE simple) | -0.81 |
+| Vanilla (plain REINFORCE) | -0.81 |
 | Heuristic | -30.09 |
 
-**Classement parfaitement monotone** (600k > 450k > vanille > heuristic),
-et l'ecart entre chaque palier de 150k episodes est remarquablement
-stable (~+5 points a chaque fois, 300k->450k et 450k->600k). Aucun signe
-de plafond -- au contraire, une progression qui ressemble a une droite.
-`eval_avg` continue lui aussi de suggerer une "decline" par rapport a
-300k pour ces checkpoints geants contre heuristic seul (glissement de
-specialisation, cf. plus haut), donc a ne pas utiliser pour juger cette
-tendance -- seul le round-robin le permet.
+**A perfectly monotonic ranking** (600k > 450k > vanilla > heuristic),
+and the gap between each 150k-episode step is remarkably stable (~+5
+points each time, 300k->450k and 450k->600k). No sign of a ceiling -- on
+the contrary, progress that looks like a straight line. `eval_avg` also
+keeps suggesting a "decline" relative to 300k for these giant checkpoints
+against heuristic alone (specialization shift, see above), so it
+shouldn't be used to judge this trend -- only the round-robin allows that.
 
-**A faire si on veut poursuivre** : pousser encore (750k, 900k...) pour
-voir jusqu'ou la progression continue avant de vraiment plafonner.
+**To do if continuing**: push further still (750k, 900k...) to see how
+far progress continues before truly plateauing.
 
-## Bug legal_moves() a TA (2026-07-29) : corrige, impact evalue sans necessite de retrain
+## `legal_moves()` bug in TA (2026-07-29): fixed, impact assessed, no retrain needed
 
-Trouve en jouant une partie interactive (`play_interactive.py`) : `legal_moves()`
-(`coinche/game.py`) traitait TA exactement comme SA -- aucune obligation
-de monter en force en suivant la couleur demandee, alors que
-`regles_coinche.md` dit explicitement qu'a TA "l'ordre et les valeurs de
-toutes les couleurs sont celles de l'atout" (meme logique que l'atout
-demande en contrat couleur). Corrige (commit `7849f42`) : TA reutilise
-desormais la logique de la branche `lead_suit == trump` (obligation de
-monter si possible, sinon jouer une carte inferieure de la couleur --
-jamais de defausse libre tant qu'on a cette couleur en main). SA
-inchange. Verifie sur 3 scenarios + 500 parties heuristic x4 simulees
-(51 a TA) sans crash.
+Found while playing an interactive game (`play_interactive.py`):
+`legal_moves()` (`coinche/game.py`) treated TA exactly like SA -- no
+obligation to overtrump when following the suit led, even though
+`regles_coinche.md` explicitly says that in TA "the order and values of
+all suits are those of trump" (the same logic as trump led in a suit
+contract). Fixed (commit `7849f42`): TA now reuses the `lead_suit ==
+trump` branch's logic (an obligation to overtrump if possible, otherwise
+play a lower card of the suit -- never a free discard as long as that
+suit is held). SA unchanged. Verified on 3 scenarios + 500 simulated
+heuristic x4 games (51 in TA) with no crash.
 
-**Impact sur les donnees d'entrainement passees, evalue avant de decider
-d'un retrain** : `HeuristicPlayer._follow_card()` calcule deja lui-meme
-les cartes qui battent le pli et en joue TOUJOURS une en priorite quand
-c'est possible, independamment de ce que `legal_moves()` autorisait --
-sa strategie respectait deja la bonne regle par sa propre logique. Les
-parties heuristique-vs-heuristique (cibles d'imitation, adversaire tout
-au long de l'entrainement RL) n'ont donc quasiment pas ete affectees.
-Seule la policy RL pouvait techniquement echantillonner une carte
-desormais illegale pendant l'exploration -- mais l'imitation avait deja
-appris a reproduire le "toujours monter" de l'heuristique, donc la
-probabilite sur ces coups etait deja quasi nulle avant meme le fix.
-**Conclusion : pas besoin de retrain complet.** Les comparaisons
-relatives de cette session restent valables (tout mesure sous la meme
-regle, de bout en bout, round-robins compris).
+**Impact on past training data, assessed before deciding on a retrain**:
+`HeuristicPlayer._follow_card()` already computes the cards that beat the
+trick itself and ALWAYS plays one as a priority when possible,
+independently of what `legal_moves()` allowed -- its strategy already
+complied with the correct rule through its own logic. Heuristic-vs-heuristic
+games (the imitation targets, and the opponent throughout RL training)
+were therefore barely affected at all. Only the RL policy could
+technically have sampled a now-illegal card during exploration -- but
+imitation had already learned to reproduce the heuristic's "always
+overtrump", so the probability on those moves was already near zero even
+before the fix. **Conclusion: no need for a full retrain.** This
+session's relative comparisons remain valid (everything measured under
+the same rule, end to end, round-robins included).
 
-**Note pour la prochaine session** : refaire un round-robin
-d'evaluation (sanity-check sous la regle corrigee) et continuer a
-pousser le pool grandissant ensemble (cf. section precedente, aucun
-signe de plafond a 600k).
+**Note for the next session**: redo an evaluation round-robin
+(sanity-check under the fixed rule) and keep pushing the growing pool
+further (cf. the previous section, no sign of a ceiling at 600k).
 
-## Extension a 750k (segments 13-15) : la progression continue, mais ralentit nettement
+## Extension to 750k (segments 13-15): progress continues, but clearly slows
 
-Meme seed (40), memes hyperparametres, `--start-segment 13` depuis
-`seg_600000.pt`. 3 segments supplementaires sains (2030-2198s chacun).
+Same seed (40), same hyperparameters, `--start-segment 13` from
+`seg_600000.pt`. 3 more healthy segments (2030-2198s each).
 
-Round-robin (4 specs : heuristic, vanille REINFORCE, pool 600k, pool
-750k, n=10000) :
+Round-robin (4 specs: heuristic, vanilla REINFORCE, pool 600k, pool 750k,
+n=10000):
 
-**Tete-a-tete direct 600k vs 750k** : 600k vs 750k = -1.24, 750k vs 600k
-= +2.91 -- corrige, **750k bat 600k de +2.08**. Positif, mais nettement
-plus petit que les paliers precedents (+5.08 pour 300k->450k, +5.30 pour
+**Direct head-to-head 600k vs 750k**: 600k vs 750k = -1.24, 750k vs 600k
+= +2.91 -- corrected, **750k beats 600k by +2.08**. Positive, but clearly
+smaller than the previous steps (+5.08 for 300k->450k, +5.30 for
 450k->600k).
 
-Force moyenne (contre les 3 autres) :
+Average strength (against the other 3):
 
-| | force moyenne |
+| | average strength |
 |---|---|
 | **Pool, 750k** | **+18.97** |
 | Pool, 600k | +17.10 |
-| Vanille (REINFORCE simple) | -3.00 |
+| Vanilla (plain REINFORCE) | -3.00 |
 | Heuristic | -33.07 |
 
-**Toujours monotone, mais l'ecart entre paliers a ete divise par ~2.5**
-(de ~+5 a ~+2). Rendements decroissants qui commencent a se voir --
-premier signe (pas encore une preuve) qu'on approche d'un vrai plafond,
-apres 3 paliers consecutifs de progression reelle (300k->450k->600k->750k).
+**Still monotonic, but the gap between steps has been divided by ~2.5**
+(from ~+5 to ~+2). Diminishing returns starting to show -- a first sign
+(not proof yet) that a real ceiling is being approached, after 3
+consecutive steps of real progress (300k->450k->600k->750k).
 
-**A faire si on veut trancher** : au moins un palier de plus (900k) pour
-voir si l'ecart continue a se retrecir jusqu'a devenir nul, ou s'il se
-stabilise a un petit gain positif residuel.
+**To do to settle it**: at least one more step (900k) to see whether the
+gap keeps shrinking down to zero, or stabilizes at a small residual
+positive gain.
 
-## Re-verification post-fix TA : les round-robins 300k/450k/600k tiennent (par curiosite)
+## Re-verification after the TA fix: the 300k/450k/600k round-robins hold up (out of curiosity)
 
-Les round-robins 300k-vs-450k et 450k-vs-600k plus haut ont ete calcules
-AVANT le fix du bug `legal_moves()` a TA (corrige seulement au moment de
-la partie interactive, entre les extensions 600k et 750k) -- seul le
-round-robin 600k-vs-750k a tourne sous le moteur corrige. Refait ici les
-3 checkpoints ensemble (heuristic, vanille, 300k, 450k, 600k, n=10000)
-sous le moteur corrige, par curiosite, pour voir si le fix change quoi
-que ce soit.
+The 300k-vs-450k and 450k-vs-600k round-robins above were computed
+BEFORE the `legal_moves()` TA bug fix (fixed only at the time of the
+interactive game, between the 600k and 750k extensions) -- only the
+600k-vs-750k round-robin ran under the fixed engine. Redone here with all
+3 checkpoints together (heuristic, vanilla, 300k, 450k, 600k, n=10000)
+under the fixed engine, out of curiosity, to see whether the fix changes anything.
 
-| Comparaison | Avant le fix | Apres le fix |
+| Comparison | Before the fix | After the fix |
 |---|---|---|
-| 450k bat 300k | +5.08 | +4.74 |
-| 600k bat 450k | +5.30 | +6.10 |
-| 600k bat 300k | (jamais mesure directement) | +10.43 |
+| 450k beats 300k | +5.08 | +4.74 |
+| 600k beats 450k | +5.30 | +6.10 |
+| 600k beats 300k | (never measured directly) | +10.43 |
 
-Force moyenne (contre les 4 autres, moteur corrige) :
+Average strength (against the other 4, fixed engine):
 
-| | force moyenne |
+| | average strength |
 |---|---|
 | Pool, 600k | +17.48 |
 | Pool, 450k | +9.29 |
 | Pool, 300k | +6.58 |
-| Vanille (REINFORCE simple) | -2.40 |
+| Vanilla (plain REINFORCE) | -2.40 |
 | Heuristic | -30.96 |
 
-**Classement parfaitement monotone, ecarts quasi identiques a avant le
-fix** (variation de ±10-15%, dans le bruit normal inter-runs). Confirme
-directement ce que l'evaluation d'impact du bug avait predit (cf. section
-precedente) : le bug etait largement inerte en pratique, la correction
-ne change pas l'histoire de cette lignee d'experiences.
+**A perfectly monotonic ranking, gaps nearly identical to before the
+fix** (variation of ±10-15%, within normal inter-run noise). Directly
+confirms what the bug's impact assessment had predicted (see the previous
+section): the bug was largely inert in practice, the fix doesn't change
+this experiment lineage's history.
 
-## Extension a 900k (segments 16-18) avec nouveaux reglages PFSP : gain toujours modeste
+## Extension to 900k (segments 16-18) with new PFSP settings: still a modest gain
 
-Meme seed (40), `--start-segment 16` depuis `seg_750000.pt`, mais avec les
-nouveaux reglages discutes le meme jour : `--pfsp-temperature 0.05` (etait
-0.1), `--pfsp-explore-eps 0.01` (plancher d'exploration, nouveau), et
-`--pool-exclude 50000,150000,250000` (retire manuellement ces 3 segments
-precoces du pool d'adversaires). **`--pool-max-size` n'a PAS ete utilise
-cette fois** (oubli signale par l'utilisateur) -- le pool est reste a 15
-membres actifs (14 snapshots + heuristic), pas de plafond dur.
+Same seed (40), `--start-segment 16` from `seg_750000.pt`, but with the
+new settings discussed the same day: `--pfsp-temperature 0.05` (was 0.1),
+`--pfsp-explore-eps 0.01` (an exploration floor, new), and
+`--pool-exclude 50000,150000,250000` (manually removes these 3 early
+segments from the opponent pool). **`--pool-max-size` was NOT used this
+time** (an omission flagged by the user) -- the pool stayed at 15 active
+members (14 snapshots + heuristic), no hard cap.
 
-Repartition PFSP verifiee (log de fin de segment, `PFSP picks total`) :
-l'ecart de tirage entre le plus facile (`heuristic`, ~1.4-2.4%) et le
-plus dur (~11-12%) est desormais bien plus large qu'avant (4-9% a 750k
-sans ces reglages) -- la temperature plus basse concentre bien plus fort,
-et le plancher empeche `heuristic` de descendre sous ~1.4%, proche du 1%
-vise.
+PFSP distribution checked (end-of-segment log, `PFSP picks total`): the
+sampling gap between the easiest (`heuristic`, ~1.4-2.4%) and the
+toughest (~11-12%) is now much wider than before (4-9% at 750k without
+these settings) -- the lower temperature does concentrate much more
+strongly, and the floor keeps `heuristic` from dropping below ~1.4%,
+close to the targeted 1%.
 
-Round-robin (4 specs : heuristic, vanille, pool 750k, pool 900k,
-n=10000) : **tete-a-tete 900k bat 750k de +2.43** corrige -- quasiment
-identique au palier precedent (600k->750k, +2.08, obtenu SANS ces
-nouveaux reglages). Force moyenne toujours monotone (900k +19.81 > 750k
-+17.47 > vanille -3.40 > heuristic -33.88).
+Round-robin (4 specs: heuristic, vanilla, pool 750k, pool 900k, n=10000):
+**900k beats 750k by +2.43** corrected head-to-head -- nearly identical
+to the previous step (600k->750k, +2.08, obtained WITHOUT these new
+settings). Average strength still monotonic (900k +19.81 > 750k +17.47 >
+vanilla -3.40 > heuristic -33.88).
 
-**Lecture honnete** : les nouveaux reglages PFSP (temperature/plancher/
-exclusion manuelle) n'ont pas mesurablement relance la progression --
-le gain reste du meme ordre que sans eux. Deux interpretations
-possibles, pas encore departagees : (1) le ralentissement est un vrai
-plafond structurel du pool a cette echelle, pas (seulement) un probleme
-de dilution PFSP ; (2) la combinaison testee est incomplete, puisque
-`--pool-max-size` (le plafond dur sur la taille du pool, cense avoir le
-plus d'impact direct sur la dilution) n'a pas ete active ce coup-ci.
+**Honest reading**: the new PFSP settings (temperature/floor/manual
+exclusion) didn't measurably reignite progress -- the gain stays on the
+same order as without them. Two possible interpretations, not yet
+settled: (1) the slowdown is a real structural ceiling of the pool at
+this scale, not (only) a PFSP-dilution issue; (2) the combination tested
+is incomplete, since `--pool-max-size` (the hard cap on pool size,
+supposedly with the most direct impact on dilution) wasn't enabled this time.
 
-## Extension a 1050k (segments 19-21) avec `--pool-max-size 8` : le gain rebondit nettement
+## Extension to 1050k (segments 19-21) with `--pool-max-size 8`: the gain rebounds sharply
 
-Meme seed (40), `--start-segment 19` depuis `seg_900000.pt`, memes
-`--pfsp-temperature 0.05`/`--pfsp-explore-eps 0.01` qu'avant, mais cette
-fois **avec** `--pool-max-size 8` (plus `--pool-exclude` etendu a
-`50000,100000,150000,250000`, sur suggestion de l'utilisateur -- retirer
-aussi `seg_100000` du pool de depart). Pool de depart du segment 19
-calcule a partir des win-rates mesures au segment precedent : `200000,
-350000, 450000, 550000, 600000, 800000, 850000, 900000` + heuristic (8
-+ 1, exactement le plafond demande) -- notamment PAS un tri par
-anciennete : `650000`/`750000` (recents mais devenus faciles, wr=0.60-
-0.66) ecartes au profit de `100000`/`200000` (plus anciens mais encore
-coriaces, wr~0.53) des le calcul initial. Le pool continue ensuite a
-etre re-elague par faiblesse a chaque nouveau segment (toujours 8+1,
-composition qui evolue). 3 segments sains (2123-2200s chacun).
+Same seed (40), `--start-segment 19` from `seg_900000.pt`, the same
+`--pfsp-temperature 0.05`/`--pfsp-explore-eps 0.01` as before, but this
+time **with** `--pool-max-size 8` (plus `--pool-exclude` extended to
+`50000,100000,150000,250000`, on the user's suggestion -- also removing
+`seg_100000` from the starting pool). Segment 19's starting pool computed
+from the win rates measured at the previous segment: `200000, 350000,
+450000, 550000, 600000, 800000, 850000, 900000` + heuristic (8 + 1,
+exactly the requested cap) -- notably NOT a sort by age: `650000`/`750000`
+(recent but grown easy, wr=0.60-0.66) dropped in favor of
+`100000`/`200000` (older but still tough, wr~0.53) right from the initial
+computation. The pool then keeps getting re-pruned by weakness at every
+new segment (still 8+1, an evolving composition). 3 healthy segments
+(2123-2200s each).
 
-Round-robin (4 specs : heuristic, vanille, pool 900k, pool 1050k,
-n=10000) : **tete-a-tete 1050k bat 900k de +4.28** corrige -- plus du
-double du palier precedent (750k->900k, +2.43, SANS `--pool-max-size`),
-et de retour dans la fourchette des paliers "sains" d'avant le
-ralentissement (+4.74, +6.10). Force moyenne : 1050k +21.47 > 900k
-+17.57 > vanille -4.23 > heuristic -34.81.
+Round-robin (4 specs: heuristic, vanilla, pool 900k, pool 1050k,
+n=10000): **1050k beats 900k by +4.28** corrected head-to-head -- more
+than double the previous step (750k->900k, +2.43, WITHOUT
+`--pool-max-size`), and back within the range of the "healthy" steps from
+before the slowdown (+4.74, +6.10). Average strength: 1050k +21.47 > 900k
++17.57 > vanilla -4.23 > heuristic -34.81.
 
-**Lecture (encore un seul point de donnees, prudence)** : ca penche
-assez clairement en faveur de l'hypothese "dilution PFSP" plutot que
-"plafond structurel" -- plafonner le pool actif a 8 membres (au lieu de
-le laisser grandir sans limite, comme aux paliers precedents) semble
-avoir reellement relance la progression, plutot que de simplement
-mieux cibler un pool deja trop dilue via la seule temperature/le
-plancher (essaye seul au palier precedent, sans effet). A confirmer sur
-un palier de plus avant de conclure definitivement.
+**Reading (still a single data point, caution warranted)**: this leans
+fairly clearly toward the "PFSP dilution" hypothesis rather than
+"structural ceiling" -- capping the active pool at 8 members (instead of
+letting it grow without limit, as in the previous steps) seems to have
+genuinely reignited progress, rather than just better targeting an
+already-too-diluted pool via temperature/floor alone (tried alone at the
+previous step, with no effect). To be confirmed over one more step before
+concluding definitively.

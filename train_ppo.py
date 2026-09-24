@@ -1,54 +1,56 @@
-"""Entraine par PPO (Schulman et al. 2017) une policy actor-critic de jeu de
-la carte, alternative a REINFORCE (train.py) sur exactement la meme tache :
-meme etat/action (`coinche.rl_agent.encode_state`, 32 slots canoniques),
-meme equipe RL aux sieges 0/2 partageant les poids, meme adversaire(s) aux
-sieges 1/3 (--opponent, pool uniforme ou PFSP), meme contre-factuel du point
-3 (`train.counterfactual_reward`). Fichier volontairement separe de train.py
-pour pouvoir developper/tester PPO sans risquer d'affecter une experience
-REINFORCE deja lancee (le code est relu au demarrage de chaque process, pas
-"a chaud" -- mais autant eviter toute ambiguite sur quel code a produit quel
+"""Trains an actor-critic card-play policy via PPO (Schulman et al. 2017),
+an alternative to REINFORCE (train.py) on exactly the same task: same
+state/action (`coinche.rl_agent.encode_state`, 32 canonical slots), same RL
+team at seats 0/2 sharing weights, same opponent(s) at seats 1/3
+(--opponent, uniform or PFSP pool), same point-3 counterfactual
+(`train.counterfactual_reward`). Deliberately a separate file from train.py
+so PPO can be developed/tested without risking an already-running REINFORCE
+experiment (the code is re-read at the start of each process, not "live" --
+but it's still worth avoiding any ambiguity about which code produced which
 checkpoint).
 
-Difference cle avec REINFORCE : au lieu d'une seule recompense scalaire par
-donne appliquee a la somme des log-probs de la trajectoire avec une baseline
-EMA globale (`NeuralPolicy.update`), PPO :
-  1) accumule un batch de plusieurs donnes (`--batch-episodes`) avant de
-     mettre a jour ;
-  2) utilise un critique (`ValueNet`) qui apprend a predire le retour attendu
-     DEPUIS CHAQUE ETAT de la trajectoire -- baseline plus fine qu'une moyenne
-     mobile globale, avantage = retour de la donne moins cette valeur predite ;
-  3) fait plusieurs passes (`--epochs`) de descente en minibatches sur ce
-     batch, avec un ratio de probabilite clippe (`--clip-eps`) entre la
-     policy courante et celle qui a collecte la trajectoire, ce qui autorise
-     plusieurs mises a jour par episode collecte sans diverger (contrairement
-     a REINFORCE, une mise a jour "on-policy" stricte par episode).
-Le retour utilise pour chaque timestep d'une donne est le meme scalaire pour
-toute la donne (recompense terminale, cf. contre-factuel du point 3) : il n'y
-a pas de recompense intermediaire par pli definie dans ce jeu.
+Key difference from REINFORCE: instead of a single scalar reward per donne
+applied to the sum of the trajectory's log-probs with a global EMA baseline
+(`NeuralPolicy.update`), PPO:
+  1) accumulates a batch of several donnes (`--batch-episodes`) before
+     updating;
+  2) uses a critic (`ValueNet`) that learns to predict the expected return
+     FROM EACH STATE of the trajectory -- a finer baseline than a global
+     moving average, advantage = the donne's return minus this predicted
+     value;
+  3) runs several passes (`--epochs`) of minibatch descent over this batch,
+     with a clipped probability ratio (`--clip-eps`) between the current
+     policy and the one that collected the trajectory, which allows several
+     updates per collected episode without diverging (unlike REINFORCE,
+     which does one strictly on-policy update per episode).
+The return used for every timestep of a donne is the same scalar for the
+whole donne (terminal reward, cf. the point-3 counterfactual): there's no
+intermediate per-trick reward defined in this game.
 
-`ValueNet` a son propre tronc, INDEPENDANT de celui de la policy (`CardNet`,
-partage avec REINFORCE/imit.pt) : un tronc partage herite de imit.pt (jamais
-entraine pour la valeur) laissait le critic quasi incapable de separer
-attaque/defense meme apres 50k episodes (cf. remarques_rl.md) -- pre-entrainer
-`ValueNet` par regression supervisee du retour final (`pretrain_value.py`,
-analogue value de `pretrain.py`) avant le fine-tuning PPO est donc recommande.
+`ValueNet` has its own trunk, INDEPENDENT of the policy's (`CardNet`, shared
+with REINFORCE/imit.pt): a shared trunk inherited from imit.pt (never
+trained for value) left the critic nearly unable to separate attack/defense
+even after 50k episodes (cf. remarques_rl.md) -- pretraining `ValueNet` by
+supervised regression on the final return (`pretrain_value.py`, the value
+counterpart of `pretrain.py`) before PPO fine-tuning is therefore
+recommended.
 
-`ValueNet` est aussi un critic CENTRALISE (`encode_full_state`, cf.
-rl_agent.py) : contrairement a la policy, qui ne voit que ce qu'un joueur
-reel verrait, le critic recoit en plus les mains actuelles des 3 autres
-sieges -- info privilegiee, connue seulement parce qu'on simule la donne en
-entier a l'entrainement, jamais disponible a l'acteur en jeu reel. Motive
-par le plafond bas mesure pour un critic a info partielle (R2~0.04-0.06
-meme bien entraine, cf. remarques_rl.md) : la variance de ce jeu est
-dominee par de l'information cachee qu'aucun critic conditionne sur un etat
-partiel ne peut deviner, mais rien n'empeche de lever ce plafond pour le
-critic puisqu'il est deja un reseau independant de la policy.
+`ValueNet` is also a CENTRALIZED critic (`encode_full_state`, cf.
+rl_agent.py): unlike the policy, which only sees what a real player would
+see, the critic additionally receives the current hands of the 3 other
+seats -- privileged info, known only because we simulate the whole donne
+during training, never available to the actor in real play. Motivated by
+the low ceiling measured for a partial-info critic (R2~0.04-0.06 even when
+well trained, cf. remarques_rl.md): this game's variance is dominated by
+hidden information that no critic conditioned on a partial state can guess,
+but nothing prevents raising this ceiling for the critic since it's already
+a network independent of the policy.
 
 Usage:
     python train_ppo.py --episodes 5000 --eval-every 200
-    python train_ppo.py --episodes 2000 --load poids.pt --save poids.pt
+    python train_ppo.py --episodes 2000 --load weights.pt --save weights.pt
     python train_ppo.py --load imit.pt --load-value value_imit.pt --episodes 50000
-    python train_ppo.py --load poids.pt --opponent heuristic,100k.pt,250k.pt --pfsp --episodes 100000
+    python train_ppo.py --load weights.pt --opponent heuristic,100k.pt,250k.pt --pfsp --episodes 100000
 """
 import argparse
 import os
@@ -71,24 +73,26 @@ from train import (
 
 if torch is not None:
     class ValueNet(nn.Module):
-        """Tronc INDEPENDANT de la policy (pas de partage avec CardNet), 1 couche
-        cachee -> 1 scalaire. Avant separation, value_head partageait le tronc
-        `fc1` de la policy (herite de imit.pt, jamais entraine pour la valeur) :
-        diagnostic (remarques_rl.md) montrant qu'apres 50k episodes PPO le
-        critic ne separait quasiment pas attaque/defense (is_attacker, pourtant
-        une feature d'entree directe) alors que l'ecart reel de retour entre
-        les deux est enorme -- le gradient de value_loss sur ce tronc partage
-        etait ecrase par celui de policy_loss. Un tronc dedie, pre-entrainable
-        independamment (pretrain_value.py), evite cette concurrence.
+        """Trunk INDEPENDENT of the policy (no sharing with CardNet), 1
+        hidden layer -> 1 scalar. Before the split, value_head shared the
+        policy's `fc1` trunk (inherited from imit.pt, never trained for
+        value): a diagnostic (remarques_rl.md) showed that after 50k PPO
+        episodes the critic barely separated attack/defense (is_attacker,
+        even though it's a direct input feature) even though the real
+        return gap between the two is huge -- value_loss's gradient on this
+        shared trunk was overwhelmed by policy_loss's. A dedicated trunk,
+        independently pretrainable (pretrain_value.py), avoids this
+        competition.
 
-        Prend en entree FULL_STATE_DIM (encode_full_state), pas STATE_DIM :
-        critic CENTRALISE, qui voit aussi les mains des 3 autres sieges (info
-        privilegiee, connue seulement en simulation d'entrainement, jamais par
-        l'acteur en jeu reel -- cf. remarques_rl.md, motive par le plafond bas
-        du critic a info partielle : R2~0.04-0.06 meme bien entraine, faute de
-        pouvoir deviner les mains adverses). Rien n'empeche cette asymetrie
-        info-partielle-pour-l'acteur / info-complete-pour-le-critic puisque
-        les deux sont des reseaux independants."""
+        Takes FULL_STATE_DIM (encode_full_state) as input, not STATE_DIM:
+        a CENTRALIZED critic, which also sees the current hands of the 3
+        other seats (privileged info, known only during training
+        simulation, never to the actor in real play -- cf. remarques_rl.md,
+        motivated by the low ceiling of a partial-info critic: R2~0.04-0.06
+        even when well trained, for lack of being able to guess the
+        opponents' hands). Nothing prevents this
+        partial-info-for-the-actor / full-info-for-the-critic asymmetry
+        since the two are independent networks."""
         def __init__(self, in_dim=FULL_STATE_DIM, hidden=128):
             super().__init__()
             self.fc1 = nn.Linear(in_dim, hidden)
@@ -100,12 +104,13 @@ if torch is not None:
 
 
     class PPOPolicy:
-        """Interface compatible RLPlayer/run_episode/evaluate (choose_card,
-        record, save, load) pour reutiliser telles quelles les fonctions de
-        train.py. `record=True` (par defaut) echantillonne et memorise
-        (etat visible par l'acteur, etat centralise pour le critic, log-prob,
-        valeur, masque des coups legaux) dans `self._traj` ; `record=False`
-        (evaluation) joue en glouton (argmax) sans rien memoriser."""
+        """Interface compatible with RLPlayer/run_episode/evaluate
+        (choose_card, record, save, load) so train.py's functions can be
+        reused as-is. `record=True` (default) samples and stores (the
+        state visible to the actor, the centralized state for the critic,
+        log-prob, value, legal-move mask) into `self._traj`;
+        `record=False` (evaluation) plays greedily (argmax) without
+        storing anything."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
                      entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False,
                      ablate_points=False, policy_net_cls=CardNet):
@@ -119,16 +124,16 @@ if torch is not None:
             self.entropy_coef = entropy_coef
             self.epochs = epochs
             self.minibatch_size = minibatch_size
-            # Si True : avantage = retour (centre/normalise sur la moyenne du BATCH courant,
-            # cf. update_batch), value_net ni utilisee ni entrainee -- teste si un critic par
-            # etat apporte quoi que ce soit par rapport a un simple scalaire type REINFORCE.
+            # If True: advantage = return (centered/normalized on the current BATCH's mean,
+            # cf. update_batch), value_net is neither used nor trained -- tests whether a
+            # per-state critic adds anything over a simple REINFORCE-style scalar.
             self.no_critic_baseline = no_critic_baseline
-            # Etude d'ablation : force a zero le bloc `_points_so_far` de encode_state (des
-            # deux cotes, acteur et critic) -- cf. rl_experiments_v3/README.md.
+            # Ablation study: forces encode_state's `_points_so_far` block to zero (on
+            # both sides, actor and critic) -- cf. rl_experiments_v3/README.md.
             self.ablate_points = ablate_points
             self.record = True
-            self._traj = []       # (etat, etat_complet, action_idx, log_prob, valeur, masque) de la donne en cours
-            self._episodes = []   # [(traj, retour)] accumules depuis la derniere update_batch()
+            self._traj = []       # (state, full_state, action_idx, log_prob, value, mask) of the current donne
+            self._episodes = []   # [(traj, return)] accumulated since the last update_batch()
 
         def choose_card(self, player, legal, leader, trick, trump):
             x = torch.tensor(encode_state(player, trick, trump, ablate_points=self.ablate_points),
@@ -141,8 +146,8 @@ if torch is not None:
             masked_logits = logits + mask
 
             if self.record:
-                # Etat centralise (mains adverses incluses) uniquement pour le critic,
-                # jamais pour la policy ci-dessus -- cf. docstring de ValueNet.
+                # Centralized state (opponents' hands included) only for the critic,
+                # never for the policy above -- cf. ValueNet's docstring.
                 x_full = torch.tensor(encode_full_state(player, trick, trump, ablate_points=self.ablate_points),
                                        dtype=torch.float32, device=self.device)
                 value = self.value_net(x_full)
@@ -159,31 +164,31 @@ if torch is not None:
             return next(c for c in legal if c.suit == chosen_suit and c.rank == chosen_rank)
 
         def end_episode(self, reward):
-            """A appeler une fois la donne terminee (au lieu de `.update()`
-            pour REINFORCE) : archive la trajectoire avec son retour (le
-            reward contre-factuel, comme REINFORCE) pour la prochaine
-            `update_batch()`. Ne declenche aucune mise a jour immediate."""
+            """Call once the donne is finished (instead of `.update()` for
+            REINFORCE): archives the trajectory with its return (the
+            counterfactual reward, as in REINFORCE) for the next
+            `update_batch()`. Triggers no immediate update."""
             if not self._traj:
                 return
             self._episodes.append((self._traj, reward))
             self._traj = []
 
         def update_batch(self):
-            """Mise a jour PPO sur toutes les donnes accumulees depuis le
-            dernier appel (cf. `end_episode`) : avantage = retour de la donne
-            moins la valeur predite a cet etat (meme retour pour tous les
-            timesteps d'une donne, recompense terminale), normalise, puis
-            `self.epochs` passes en minibatches sur l'objectif clippe + perte
-            de valeur (MSE) + bonus d'entropie. Vide le batch apres coup.
-            Si `self.no_critic_baseline` : pas de soustraction de valeur
-            predite -- l'avantage normalise ci-dessous devient alors un
-            centrage sur la moyenne du BATCH courant (type REINFORCE, mais
-            scalaire par batch plutot que EMA globale), `value_net` n'est ni
-            appelee ni entrainee (`value_loss` renvoyee a 0).
-            Retourne (policy_loss, value_loss, entropy, clip_frac) moyens
-            (clip_frac : fraction des echantillons ou |ratio-1| > clip_eps,
-            diagnostic standard PPO -- mesure seulement, ne change rien au
-            comportement), ou None si rien n'etait accumule."""
+            """PPO update over all the donnes accumulated since the last
+            call (cf. `end_episode`): advantage = the donne's return minus
+            the predicted value at that state (same return for all
+            timesteps of a donne, terminal reward), normalized, then
+            `self.epochs` minibatch passes over the clipped objective +
+            value loss (MSE) + entropy bonus. Clears the batch afterward.
+            If `self.no_critic_baseline`: no predicted-value subtraction --
+            the normalized advantage below then becomes a centering on the
+            current BATCH's mean (REINFORCE-style, but a per-batch scalar
+            rather than a global EMA), `value_net` is neither called nor
+            trained (`value_loss` returned as 0).
+            Returns the average (policy_loss, value_loss, entropy,
+            clip_frac) (clip_frac: fraction of samples where |ratio-1| >
+            clip_eps, a standard PPO diagnostic -- measurement only,
+            doesn't change behavior), or None if nothing was accumulated."""
             if not self._episodes:
                 return None
             states, full_states, actions, old_log_probs, old_values, masks, returns = [], [], [], [], [], [], []
@@ -206,11 +211,12 @@ if torch is not None:
             masks = torch.stack(masks)
             returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
             advantages = returns if self.no_critic_baseline else returns - old_values
-            # Echelle des retours bruts (~centaines de points, cf. rl_experiments_v2/README.md) :
-            # sans ca, value_loss (MSE sur ces retours) domine policy_loss (sur avantage normalise,
-            # O(1)) de plusieurs ordres de grandeur -- policy_net et value_net sont desormais des
-            # troncs independants (plus de risque de "polluer" les features de la policy), mais
-            # `--value-coef` resterait sans effet interpretable sans cette mise a l'echelle commune.
+            # Scale of the raw returns (~hundreds of points, cf. rl_experiments_v2/README.md):
+            # without this, value_loss (MSE on these returns) dominates policy_loss (on the
+            # normalized advantage, O(1)) by several orders of magnitude -- policy_net and
+            # value_net are now independent trunks (no more risk of "polluting" the policy's
+            # features), but `--value-coef` would remain without an interpretable effect
+            # without this common scaling.
             return_scale = returns.std() + 1e-6
             if advantages.numel() > 1:
                 advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
@@ -224,10 +230,11 @@ if torch is not None:
                 for start in range(0, n, self.minibatch_size):
                     mb = torch.tensor(order[start:start + self.minibatch_size], dtype=torch.long, device=self.device)
                     logits = self.policy_net(states[mb])
-                    # Reappliquer le masque des coups legaux (choose_card) : sans lui, new_log_probs
-                    # est calcule sous une distribution sur les 32 slots (dont des coups illegaux),
-                    # differente de celle sous laquelle old_log_probs a ete echantillonne -- le ratio
-                    # PPO ci-dessous n'aurait alors plus le sens "combien la policy a-t-elle bouge".
+                    # Reapply the legal-move mask (choose_card): without it, new_log_probs
+                    # would be computed under a distribution over all 32 slots (including
+                    # illegal moves), different from the one old_log_probs was sampled under
+                    # -- the PPO ratio below would then lose its "how much has the policy
+                    # moved" meaning.
                     dist = torch.distributions.Categorical(logits=logits + masks[mb])
                     new_log_probs = dist.log_prob(actions[mb])
                     ratio = torch.exp(new_log_probs - old_log_probs[mb])
@@ -243,8 +250,8 @@ if torch is not None:
                         values = self.value_net(full_states[mb])
                         value_loss = F.mse_loss(values / return_scale, returns[mb] / return_scale)
                         loss = policy_loss + self.value_coef * value_loss - self.entropy_coef * entropy
-                    # Mesure seule (n'affecte pas loss/gradient) : a quelle frequence le clip
-                    # est-il reellement en jeu (|ratio-1| > clip_eps), convention standard PPO.
+                    # Measurement only (doesn't affect loss/gradient): how often the clip
+                    # is actually in play (|ratio-1| > clip_eps), standard PPO convention.
                     clip_frac = ((ratio - 1.0).abs() > self.clip_eps).float().mean()
 
                     self.optimizer.zero_grad()
@@ -261,28 +268,29 @@ if torch is not None:
                     total_entropy / n_updates, total_clip_frac / n_updates)
 
         def save(self, path):
-            """Checkpoint natif PPO : les deux reseaux independants dans un seul
-            fichier (dict a 2 cles). Pour un resume complet, repasser ce meme
-            chemin a la fois a --load et --load-value (chacun y prend sa part).
-            Ne sauvegarde PAS l'etat de self.optimizer (moments Adam m/v) : une
-            reprise (--load/--load-value puis poursuite de l'entrainement dans
-            un nouveau process) repart avec un Adam "a froid" sur des poids
-            deja entraines, pas un vrai historique continu -- meme limite deja
-            presente pour NeuralPolicy/REINFORCE (train.py) entre les segments
-            de rl_experiments_v2/exp_growing_pool. Impact estime faible (les
-            moments se re-stabilisent en quelques centaines de steps, une
-            fraction negligeable d'un segment de dizaines de milliers
-            d'episodes) mais reel a chaque frontiere --episode-offset."""
+            """Native PPO checkpoint: both independent networks in a
+            single file (a dict with 2 keys). For a full resume, pass this
+            same path to both --load and --load-value (each reads its own
+            share). Does NOT save self.optimizer's state (Adam's m/v
+            moments): resuming (--load/--load-value then continuing
+            training in a new process) restarts with a "cold" Adam on
+            already-trained weights, not a truly continuous history --
+            the same limitation already present for NeuralPolicy/REINFORCE
+            (train.py) between rl_experiments_v2/exp_growing_pool's
+            segments. Estimated impact is small (the moments restabilize
+            within a few hundred steps, a negligible fraction of a segment
+            of tens of thousands of episodes) but real at every
+            --episode-offset boundary."""
             torch.save({'policy': self.policy_net.state_dict(),
                         'value': self.value_net.state_dict()}, path)
 
         def load(self, path):
-            """Charge la policy depuis : un checkpoint PPO natif (dict, cle
-            'policy'), un checkpoint REINFORCE (CardNet : fc1/fc2, cf.
-            rl_agent.py -- imit.pt ou segments de rl_experiments(_v2)/, meme
-            forme que policy_net donc aucun remappage requis), ou un ancien
-            checkpoint PPO a tronc partage (fc1/policy_head/value_head, avant
-            la separation des reseaux -- value_head est alors ignoree)."""
+            """Loads the policy from: a native PPO checkpoint (dict,
+            'policy' key), a REINFORCE checkpoint (CardNet: fc1/fc2, cf.
+            rl_agent.py -- imit.pt or rl_experiments(_v2)/ segments, same
+            shape as policy_net so no remapping needed), or an older
+            shared-trunk PPO checkpoint (fc1/policy_head/value_head, before
+            the networks were split -- value_head is then ignored)."""
             obj = torch.load(path, map_location=self.device)
             if 'policy' in obj:
                 self.policy_net.load_state_dict(obj['policy'])
@@ -296,28 +304,28 @@ if torch is not None:
                 state_dict.pop('value_head.bias', None)
                 self.policy_net.load_state_dict(state_dict)
             else:
-                raise ValueError(f"Format de checkpoint non reconnu pour la policy : {path}")
+                raise ValueError(f"Unrecognized checkpoint format for the policy: {path}")
 
         def load_value(self, path):
-            """Charge value_net depuis : un checkpoint PPO natif (dict, cle
-            'value'), ou un checkpoint value pre-entraine par pretrain_value.py
-            (meme forme que ValueNet, aucun remappage requis)."""
+            """Loads value_net from: a native PPO checkpoint (dict,
+            'value' key), or a value checkpoint pretrained by
+            pretrain_value.py (same shape as ValueNet, no remapping needed)."""
             obj = torch.load(path, map_location=self.device)
             self.value_net.load_state_dict(obj['value'] if 'value' in obj else obj)
 
     class SharedTrunkPPOPolicy:
-        """Variante de PPOPolicy pour l'etape 2 du plan (remarques_rl.md point
-        6, discussion du 2026-07-27) : acteur et critic partagent un seul
-        reseau (SharedTrunkActorCritic) au lieu de deux troncs independants
-        (CardNet + ValueNet). Meme interface que PPOPolicy (choose_card,
-        end_episode, update_batch, save, load) pour rester compatible avec
-        RLPlayer/run_episode/evaluate/eval_policy.py sans les modifier.
+        """Variant of PPOPolicy for step 2 of the plan (remarques_rl.md
+        point 6, 2026-07-27 discussion): actor and critic share a single
+        network (SharedTrunkActorCritic) instead of two independent trunks
+        (CardNet + ValueNet). Same interface as PPOPolicy (choose_card,
+        end_episode, update_batch, save, load) to stay compatible with
+        RLPlayer/run_episode/evaluate/eval_policy.py without modifying them.
 
-        Contrairement a PPOPolicy, il n'y a plus qu'un seul reseau/optimiseur
-        (le tronc partage recoit le gradient a la fois de policy_loss et de
-        value_loss) -- exactement le mecanisme qui manquait aux tentatives
-        precedentes sur le critic (toutes avec un ValueNet independant, donc
-        sans effet possible sur l'acteur par construction)."""
+        Unlike PPOPolicy, there is now only a single network/optimizer
+        (the shared trunk receives the gradient of both policy_loss and
+        value_loss) -- exactly the mechanism that was missing from
+        previous attempts on the critic (all with an independent ValueNet,
+        so with no possible effect on the actor by construction)."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
                      entropy_coef=0.01, epochs=4, minibatch_size=64, no_critic_baseline=False,
                      net_cls=SharedTrunkActorCritic):
@@ -329,12 +337,11 @@ if torch is not None:
             self.entropy_coef = entropy_coef
             self.epochs = epochs
             self.minibatch_size = minibatch_size
-            # Cf. PPOPolicy.no_critic_baseline (meme semantique) : avantage = retour
-            # centre/normalise sur le batch, la tete critic n'est ni appelee ni
-            # entrainee dans update_batch -- teste si la baseline du critic apporte
-            # quoi que ce soit ICI (jamais teste sur le tronc partage jusqu'ici,
-            # contrairement a l'ancien critic independant, ablate a 3 reprises sans
-            # effet mesurable).
+            # Cf. PPOPolicy.no_critic_baseline (same semantics): advantage = return
+            # centered/normalized on the batch, the critic head is neither called nor
+            # trained in update_batch -- tests whether the critic's baseline adds
+            # anything HERE (never tested on the shared trunk before, unlike the old
+            # independent critic, ablated 3 times with no measurable effect).
             self.no_critic_baseline = no_critic_baseline
             self.record = True
             self._traj = []
@@ -372,11 +379,11 @@ if torch is not None:
             self._traj = []
 
         def update_batch(self):
-            """Identique a PPOPolicy.update_batch, sauf que policy_net/value_net
-            sont remplaces par les deux methodes forward_actor/forward_critic
-            du meme reseau partage -- un seul optimiseur, un seul .backward()
-            par minibatch (le gradient de value_loss traverse aussi le tronc
-            partage)."""
+            """Identical to PPOPolicy.update_batch, except policy_net/value_net
+            are replaced by the same shared network's two
+            forward_actor/forward_critic methods -- a single optimizer, a
+            single .backward() per minibatch (value_loss's gradient also
+            flows through the shared trunk)."""
             if not self._episodes:
                 return None
             states, full_states, actions, old_log_probs, old_values, masks, returns = [], [], [], [], [], [], []
@@ -443,53 +450,54 @@ if torch is not None:
                     total_entropy / n_updates, total_clip_frac / n_updates)
 
         def save(self, path):
-            """Checkpoint natif : un seul reseau, contrairement au dict a 2
-            cles de PPOPolicy.save() (plus de policy_net/value_net separes)."""
+            """Native checkpoint: a single network, unlike PPOPolicy.save()'s
+            2-key dict (no more separate policy_net/value_net)."""
             torch.save(self.net.state_dict(), path)
 
         def load(self, path):
-            """Charge soit un checkpoint natif de cette architecture (au moins
-            une cle '*_actor.weight' -- SharedTrunkActorCritic a fc3_actor ET
-            fc4_actor, SharedTrunkActorCriticDeep a seulement fc4_actor, d'ou
-            ce test generique plutot qu'un nom de cle fige), soit un checkpoint
-            CardNetBig brut (ex. imit_bignet_ent02.pt, aucune cle '*_actor')
-            via net_cls.load_actor_from_cardnetbig -- la partie critic reste
-            alors initialisee aleatoirement."""
+            """Loads either a native checkpoint of this architecture (at
+            least one '*_actor.weight' key -- SharedTrunkActorCritic has
+            both fc3_actor AND fc4_actor, SharedTrunkActorCriticDeep only
+            fc4_actor, hence this generic test rather than a fixed key
+            name), or a raw CardNetBig checkpoint (e.g.
+            imit_bignet_ent02.pt, no '*_actor' key) via
+            net_cls.load_actor_from_cardnetbig -- the critic part then
+            starts randomly initialized."""
             obj = torch.load(path, map_location=self.device)
             if any(k.endswith('_actor.weight') for k in obj):
                 self.net.load_state_dict(obj)
             elif 'fc3.weight' in obj:
                 self.net.load_actor_from_cardnetbig(path, map_location=self.device)
             else:
-                raise ValueError(f"Format de checkpoint non reconnu pour SharedTrunkPPOPolicy : {path}")
+                raise ValueError(f"Unrecognized checkpoint format for SharedTrunkPPOPolicy: {path}")
 
     class SharedTrunkAuxPPOPolicy(SharedTrunkPPOPolicy):
-        """SharedTrunkPPOPolicy + tache auxiliaire (rl_experiments_v5,
-        discussion du 2026-07-27) : SharedTrunkActorCriticAux predit en plus
-        le nombre d'atouts restants des 3 autres sieges, depuis le tronc
-        partage SEUL (cf. docstring de SharedTrunkActorCriticAux dans
-        rl_agent.py pour le raisonnement complet -- volontairement PAS depuis
-        la branche info-centralisee du critic, pour eviter que le reseau ne
-        "triche" en lisant la reponse directement dans cette branche plutot
-        que d'avoir a l'encoder dans le tronc partage avec l'acteur).
+        """SharedTrunkPPOPolicy + an auxiliary task (rl_experiments_v5,
+        2026-07-27 discussion): SharedTrunkActorCriticAux additionally
+        predicts the number of trumps remaining for the 3 other seats,
+        from the shared trunk ALONE (see SharedTrunkActorCriticAux's
+        docstring in rl_agent.py for the full reasoning -- deliberately
+        NOT from the critic's centralized info branch, to prevent the
+        network from "cheating" by reading the answer directly out of that
+        branch rather than having to encode it in the trunk shared with
+        the actor).
 
-        Nouvel hyperparametre `aux_coef` (poids de cette perte dans la loss
-        totale) -- la perte auxiliaire est normalisee par son propre
-        ecart-type sur le batch courant (meme logique que `return_scale`
-        pour `value_loss`), sans quoi `aux_coef` n'aurait pas de sens
-        interpretable (echelle des comptes d'atouts, 0 a 8, tres differente
-        de celle de l'avantage normalise ou de l'entropie).
+        New hyperparameter `aux_coef` (this loss's weight in the total
+        loss) -- the auxiliary loss is normalized by its own standard
+        deviation on the current batch (same logic as `return_scale` for
+        `value_loss`), without which `aux_coef` wouldn't have an
+        interpretable meaning (the trump-count scale, 0 to 8, is very
+        different from that of the normalized advantage or the entropy).
 
-        A SA/TA, le "slot canonique 0" (cf. other_trump_counts) ne
-        correspond pas a un vrai atout (aucun a SA, les 4 couleurs a
-        egalite a TA) -- ces decisions sont exclues de la perte auxiliaire
-        (masque `aux_valid`, discussion du 2026-07-27), sans affecter
-        policy_loss/value_loss qui continuent de s'entrainer normalement
-        dessus.
+        In SA/TA, "canonical slot 0" (cf. other_trump_counts) doesn't
+        correspond to a real trump (none in SA, all 4 suits tied in TA) --
+        these decisions are excluded from the auxiliary loss (`aux_valid`
+        mask, 2026-07-27 discussion), without affecting policy_loss/
+        value_loss, which keep training normally on them.
 
-        `update_batch` retourne un 5-tuple (policy_loss, value_loss,
-        aux_loss, entropy, clip_frac) au lieu du 4-tuple de la classe
-        parente -- gere explicitement par train_ppo.py `main()`."""
+        `update_batch` returns a 5-tuple (policy_loss, value_loss,
+        aux_loss, entropy, clip_frac) instead of the parent class's
+        4-tuple -- handled explicitly by train_ppo.py's `main()`."""
         def __init__(self, device='cpu', lr=1e-3, clip_eps=0.2, value_coef=0.5,
                      aux_coef=0.5, entropy_coef=0.01, epochs=4, minibatch_size=64):
             self.device = device
@@ -518,17 +526,17 @@ if torch is not None:
                 x_full = torch.tensor(encode_full_state(player, trick, trump),
                                        dtype=torch.float32, device=self.device)
                 value = self.net.forward_critic(x_full)
-                # Cible de la tache auxiliaire : info privilegiee (mains completes),
-                # calculee ici (contexte player/trump disponible), pas au moment
-                # de update_batch (states seuls, plus de contexte de partie).
+                # Auxiliary task target: privileged info (complete hands),
+                # computed here (player/trump context available), not at
+                # update_batch time (states alone, no more game context).
                 aux_target = torch.tensor(other_trump_counts(player, trump),
                                            dtype=torch.float32, device=self.device)
-                # A SA/TA, le "slot canonique 0" ne correspond pas a un vrai atout
-                # (aucun a SA, les 4 couleurs a egalite a TA, cf. discussion du
-                # 2026-07-27) -- la cible n'a alors aucun sens strategique, donc
-                # ces decisions sont exclues de la perte auxiliaire (mais pas de
-                # policy_loss/value_loss, qui continuent de s'entrainer normalement
-                # sur SA/TA comme sur les contrats couleur).
+                # In SA/TA, "canonical slot 0" doesn't correspond to a real trump
+                # (none in SA, all 4 suits tied in TA, cf. the 2026-07-27
+                # discussion) -- the target then has no strategic meaning, so
+                # these decisions are excluded from the auxiliary loss (but not
+                # from policy_loss/value_loss, which keep training normally on
+                # SA/TA just as on suit contracts).
                 aux_valid = trump not in ('SA', 'TA')
                 dist = torch.distributions.Categorical(logits=masked_logits)
                 action_idx = dist.sample()
@@ -572,8 +580,8 @@ if torch is not None:
             returns = torch.tensor(returns, dtype=torch.float32, device=self.device)
             advantages = returns - old_values
             return_scale = returns.std() + 1e-6
-            # Normalisation calculee seulement sur les decisions valides (contrat
-            # couleur) -- exclut les cibles SA/TA denuees de sens, cf. choose_card.
+            # Normalization computed only over the valid decisions (suit
+            # contract) -- excludes the meaningless SA/TA targets, cf. choose_card.
             aux_scale = (aux_targets[aux_valids].std() + 1e-6) if aux_valids.any() else torch.tensor(1.0)
             if advantages.numel() > 1:
                 advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-6)
@@ -624,81 +632,81 @@ if torch is not None:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--episodes', type=int, default=2000, help="Nombre de donnes d'entrainement.")
+    parser.add_argument('--episodes', type=int, default=2000, help="Number of training donnes.")
     parser.add_argument('--batch-episodes', type=int, default=32,
-                         help="Nombre de donnes collectees entre deux mises a jour PPO.")
-    parser.add_argument('--epochs', type=int, default=4, help='Passes PPO par batch collecte.')
+                         help="Number of donnes collected between two PPO updates.")
+    parser.add_argument('--epochs', type=int, default=4, help='PPO passes per collected batch.')
     parser.add_argument('--minibatch-size', type=int, default=64)
-    parser.add_argument('--clip-eps', type=float, default=0.2, help='Largeur du clip du ratio PPO.')
+    parser.add_argument('--clip-eps', type=float, default=0.2, help='Width of the PPO ratio clip.')
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--value-coef', type=float, default=0.5, help='Poids de la perte de valeur (MSE).')
+    parser.add_argument('--value-coef', type=float, default=0.5, help='Weight of the value loss (MSE).')
     parser.add_argument('--aux-coef', type=float, default=0.5,
-                         help="Poids de la perte auxiliaire (MSE, normalisee) -- uniquement avec "
+                         help="Weight of the auxiliary loss (MSE, normalized) -- only with "
                               "--architecture shared_aux.")
-    parser.add_argument('--entropy-coef', type=float, default=0.01, help="Poids du bonus d'entropie.")
+    parser.add_argument('--entropy-coef', type=float, default=0.01, help="Weight of the entropy bonus.")
     parser.add_argument('--entropy-decay', choices=['none', 'invsqrt', 'inv'], default='none',
-                         help="Decroissance de --entropy-coef au fil des episodes (meme schema que "
-                              "train.py --entropy-decay) : 'none' (constant), 'invsqrt' (beta/sqrt(ep)), "
+                         help="Decay of --entropy-coef over episodes (same schedule as "
+                              "train.py --entropy-decay): 'none' (constant), 'invsqrt' (beta/sqrt(ep)), "
                               "'inv' (beta/ep).")
-    parser.add_argument('--eval-every', type=int, default=200, help='Frequence (en episodes) des evaluations gloutonnes.')
-    parser.add_argument('--eval-games', type=int, default=100, help='Nombre de donnes par evaluation.')
+    parser.add_argument('--eval-every', type=int, default=200, help='Frequency (in episodes) of greedy evaluations.')
+    parser.add_argument('--eval-games', type=int, default=100, help='Number of donnes per evaluation.')
     parser.add_argument('--no-counterfactual-baseline', action='store_true',
-                         help="Desactive le contre-factuel (remarques_rl.md point 3) : utilise le reward "
-                              "brut directement comme retour PPO.")
+                         help="Disables the counterfactual (remarques_rl.md point 3): uses the raw "
+                              "reward directly as the PPO return.")
     parser.add_argument('--no-critic-baseline', action='store_true',
-                         help="Desactive la soustraction de la valeur predite dans l'avantage -- value_net "
-                              "n'est ni appelee ni entrainee. Teste si un critic par etat apporte quoi que "
-                              "ce soit par rapport a un simple centrage sur la moyenne du batch (cf. "
-                              "update_batch). Axe independant de --no-counterfactual-baseline.")
+                         help="Disables subtracting the predicted value from the advantage -- value_net "
+                              "is neither called nor trained. Tests whether a per-state critic adds "
+                              "anything over simply centering on the batch's mean (cf. "
+                              "update_batch). An axis independent of --no-counterfactual-baseline.")
     parser.add_argument('--ablate-points-so-far', action='store_true',
-                         help="Etude d'ablation : force a zero le bloc `_points_so_far` de encode_state "
-                              "(acteur et critic), pour isoler son effet sur la performance. --load doit "
-                              "pointer vers un imit.pt genere avec le meme flag (pretrain.py "
+                         help="Ablation study: forces encode_state's `_points_so_far` block to zero "
+                              "(actor and critic), to isolate its effect on performance. --load must "
+                              "point to an imit.pt generated with the same flag (pretrain.py "
                               "--ablate-points-so-far).")
     parser.add_argument('--architecture', choices=['small', 'big', 'shared', 'shared_aux', 'shared_deep'],
                          default='small',
-                         help="'small' = CardNet+ValueNet independants (defaut). 'big' = CardNetBig+ValueNet "
-                              "independants. 'shared' = SharedTrunkActorCritic (etape 2 du plan, "
-                              "remarques_rl.md point 6) : tronc partage acteur/critic (167->128->128, "
-                              "tete acteur 128->64->32). 'shared_aux' = SharedTrunkActorCriticAux "
-                              "(rl_experiments_v5) : idem + tache auxiliaire (nombre d'atouts restants "
-                              "des 3 autres, cf. --aux-coef). 'shared_deep' = SharedTrunkActorCriticDeep "
-                              "(discussion du 2026-07-28) : rebalancement tronc/tete, tronc plus profond "
-                              "(167->128->128->64, 3 couches) et tete acteur plus courte (64->32, 1 "
-                              "couche) -- couvre exactement les 4 couches de CardNetBig, contrairement "
-                              "a 'shared' qui n'en reprend que 2. "
-                              "--ablate-points-so-far non supporte avec 'shared'/'shared_aux'/'shared_deep' ; "
-                              "--no-critic-baseline supporte avec 'shared'/'shared_deep' (pas encore "
-                              "'shared_aux'). --load accepte alors soit un checkpoint natif de cette "
-                              "architecture, soit un checkpoint CardNetBig (ex. imit_bignet_ent02.pt, les "
-                              "parties critic/auxiliaire demarrent alors aleatoires).")
+                         help="'small' = independent CardNet+ValueNet (default). 'big' = independent "
+                              "CardNetBig+ValueNet. 'shared' = SharedTrunkActorCritic (step 2 of the "
+                              "plan, remarques_rl.md point 6): shared actor/critic trunk "
+                              "(167->128->128, actor head 128->64->32). 'shared_aux' = "
+                              "SharedTrunkActorCriticAux (rl_experiments_v5): same + auxiliary task "
+                              "(number of trumps remaining for the 3 others, cf. --aux-coef). "
+                              "'shared_deep' = SharedTrunkActorCriticDeep (2026-07-28 discussion): "
+                              "trunk/head rebalancing, a deeper trunk (167->128->128->64, 3 layers) "
+                              "and a shorter actor head (64->32, 1 layer) -- covers exactly "
+                              "CardNetBig's 4 layers, unlike 'shared' which only reuses 2 of them. "
+                              "--ablate-points-so-far not supported with 'shared'/'shared_aux'/'shared_deep'; "
+                              "--no-critic-baseline supported with 'shared'/'shared_deep' (not yet "
+                              "'shared_aux'). --load then accepts either a native checkpoint of this "
+                              "architecture, or a CardNetBig checkpoint (e.g. imit_bignet_ent02.pt, the "
+                              "critic/auxiliary parts then start out random).")
     parser.add_argument('--opponent', default='heuristic',
-                         help="Adversaire(s) aux sieges 1/3, separes par des virgules : meme semantique que "
-                              "train.py --opponent (heuristic et/ou chemins de poids, pool si plusieurs).")
-    parser.add_argument('--pfsp', action='store_true', help='Meme semantique que train.py --pfsp.')
+                         help="Opponent(s) at seats 1/3, comma-separated: same semantics as "
+                              "train.py --opponent (heuristic and/or weight paths, a pool if several).")
+    parser.add_argument('--pfsp', action='store_true', help='Same semantics as train.py --pfsp.')
     parser.add_argument('--pfsp-refresh-every', type=int, default=5000)
     parser.add_argument('--pfsp-temperature', type=float, default=1.0)
     parser.add_argument('--pfsp-ema-beta', type=float, default=0.98)
     parser.add_argument('--pfsp-explore-eps', type=float, default=0.0,
-                         help='Meme semantique que train.py --pfsp-explore-eps (plancher d\'exploration PFSP).')
+                         help='Same semantics as train.py --pfsp-explore-eps (PFSP exploration floor).')
     parser.add_argument('--seed', type=int, default=None)
-    parser.add_argument('--save', default=None, help="Chemin pour sauvegarder les poids en fin d'entrainement.")
-    parser.add_argument('--load', default=None, help='Chemin pour reprendre la policy depuis des poids sauvegardes.')
+    parser.add_argument('--save', default=None, help="Path to save the weights at the end of training.")
+    parser.add_argument('--load', default=None, help='Path to resume the policy from saved weights.')
     parser.add_argument('--load-value', default=None,
-                         help="Chemin pour charger value_net separement (pretrain_value.py, ou cle 'value' "
-                              "d'un checkpoint PPO natif) -- sans quoi elle demarre initialisee aleatoirement.")
+                         help="Path to load value_net separately (pretrain_value.py, or the 'value' "
+                              "key of a native PPO checkpoint) -- without which it starts randomly initialized.")
     parser.add_argument('--checkpoint-every', type=int, default=None,
-                         help="Sauvegarde un checkpoint tous les N episodes, en plus de --save en fin d'entrainement.")
+                         help="Saves a checkpoint every N episodes, in addition to --save at the end of training.")
     parser.add_argument('--checkpoint-dir', default=None,
-                         help='Dossier de sauvegarde des checkpoints (requis avec --checkpoint-every).')
+                         help='Directory to save checkpoints in (required with --checkpoint-every).')
     parser.add_argument('--episode-offset', type=int, default=0,
-                         help="Decalage ajoute au compteur d'episode (logs, dealer, decroissance, nom des "
-                              "checkpoints) : pour reprendre un entrainement precedent avec une numerotation "
-                              "absolue coherente.")
+                         help="Offset added to the episode counter (logs, dealer, decay, checkpoint "
+                              "names): to resume a previous training run with consistent absolute "
+                              "numbering.")
     args = parser.parse_args()
 
     if torch is None:
-        raise SystemExit("torch est requis pour entrainer une PPOPolicy (voir requirements.txt).")
+        raise SystemExit("torch is required to train a PPOPolicy (see requirements.txt).")
 
     if args.seed is not None:
         random.seed(args.seed)
@@ -707,15 +715,15 @@ def main():
     shared_family = ('shared', 'shared_aux', 'shared_deep')
     if args.architecture in shared_family:
         if args.ablate_points_so_far:
-            raise SystemExit("--ablate-points-so-far n'est pas supporte avec "
+            raise SystemExit("--ablate-points-so-far is not supported with "
                               "--architecture shared/shared_aux/shared_deep.")
         if args.no_critic_baseline and args.architecture == 'shared_aux':
-            raise SystemExit("--no-critic-baseline n'est pas encore supporte avec "
-                              "--architecture shared_aux (seulement 'shared'/'shared_deep').")
-        # NeuralPolicy (train.py, utilisee par make_opponent_factory pour charger un
-        # adversaire fige du pool) appelle net(x) -> forward(x) -- SharedTrunkActorCritic
-        # et SharedTrunkActorCriticDeep definissent toutes deux forward() comme alias
-        # de forward_actor() a cet effet.
+            raise SystemExit("--no-critic-baseline is not yet supported with "
+                              "--architecture shared_aux (only 'shared'/'shared_deep').")
+        # NeuralPolicy (train.py, used by make_opponent_factory to load a
+        # frozen pool opponent) calls net(x) -> forward(x) -- SharedTrunkActorCritic
+        # and SharedTrunkActorCriticDeep both define forward() as an alias
+        # for forward_actor() for this purpose.
         if args.architecture == 'shared_aux':
             net_cls = SharedTrunkActorCriticAux
         elif args.architecture == 'shared_deep':
@@ -747,13 +755,13 @@ def main():
                             ablate_points=args.ablate_points_so_far, policy_net_cls=policy_net_cls)
     if args.load:
         policy.load(args.load)
-        print('poids charges depuis', args.load)
+        print('weights loaded from', args.load)
     if args.load_value:
         if args.architecture in shared_family:
-            raise SystemExit("--load-value n'a pas de sens avec --architecture shared/shared_aux/"
-                              "shared_deep (un seul reseau, pas de value_net separee).")
+            raise SystemExit("--load-value doesn't make sense with --architecture shared/shared_aux/"
+                              "shared_deep (a single network, no separate value_net).")
         policy.load_value(args.load_value)
-        print('poids de value_net charges depuis', args.load_value)
+        print('value_net weights loaded from', args.load_value)
 
     if args.checkpoint_every and args.checkpoint_dir:
         os.makedirs(args.checkpoint_dir, exist_ok=True)
@@ -800,7 +808,7 @@ def main():
             if last_stats is None:
                 stats_str = ""
             elif len(last_stats) == 5:
-                # SharedTrunkAuxPPOPolicy : (policy_loss, value_loss, aux_loss, entropy, clip_frac).
+                # SharedTrunkAuxPPOPolicy: (policy_loss, value_loss, aux_loss, entropy, clip_frac).
                 stats_str = (f"  policy_loss={last_stats[0]:+.4f}  value_loss={last_stats[1]:.4f}  "
                              f"aux_loss={last_stats[2]:.4f}  entropy={last_stats[3]:.3f}  "
                              f"clip_frac={100*last_stats[4]:4.1f}%")
@@ -816,14 +824,14 @@ def main():
         if args.checkpoint_every and args.checkpoint_dir and ep % args.checkpoint_every == 0:
             policy.save(os.path.join(args.checkpoint_dir, f'ckpt_ep{global_ep}.pt'))
 
-    # Dernier batch partiel (si args.episodes n'est pas multiple de --batch-episodes).
+    # Last partial batch (if args.episodes isn't a multiple of --batch-episodes).
     stats = policy.update_batch()
     if stats is not None:
         last_stats = stats
 
     if args.save:
         policy.save(args.save)
-        print('poids sauvegardes dans', args.save)
+        print('weights saved to', args.save)
 
     if sampler is not None:
         print('PFSP picks total:', sampler.summary())

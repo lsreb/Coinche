@@ -12,15 +12,15 @@ TRUMP_TYPES = ['P', 'C', 'K', 'T', 'SA', 'TA']
 
 
 def _canonical_slots(trump):
-    """4 « slots » de couleur symétriques par rapport à l'atout, chacun avec son
-    ordre de rang (8 positions) : pour un contrat couleur, l'atout occupe toujours
-    le slot 0 (ordre TRUMP_ORDER), les 3 autres couleurs suivent dans l'ordre fixe
-    de SUITS (ordre NORMAL_ORDER) ; à TA toutes les couleurs sont atout (les 4
-    slots en TRUMP_ORDER) ; à SA aucune ne l'est (les 4 slots en NORMAL_ORDER).
-    Ainsi une même position d'entrée/sortie du réseau garde toujours le même sens
-    stratégique (« meilleure carte du slot atout », etc.) quelle que soit la
-    couleur d'atout réelle de la donne — le réseau n'a plus à réapprendre 4 fois
-    (une par couleur physique) le même concept."""
+    """4 suit "slots" symmetric with respect to trump, each with its own rank
+    order (8 positions): for a suit contract, trump always occupies slot 0
+    (TRUMP_ORDER), the 3 other suits follow in the fixed order of SUITS
+    (NORMAL_ORDER); in TA all suits are trump (all 4 slots in TRUMP_ORDER);
+    in SA none is (all 4 slots in NORMAL_ORDER). This way a given
+    input/output position of the network always keeps the same strategic
+    meaning ("best card of the trump slot", etc.) regardless of the donne's
+    actual trump suit -- the network no longer has to relearn the same
+    concept 4 times (once per physical suit)."""
     if trump in SUITS:
         suits = [trump] + [s for s in SUITS if s != trump]
         orders = [TRUMP_ORDER, NORMAL_ORDER, NORMAL_ORDER, NORMAL_ORDER]
@@ -54,8 +54,9 @@ def _one_hot(index, size):
 
 
 def _played_before_this_trick(player, suits, orders) -> list:
-    """Cartes des plis déjà complets de la donne (cf. HeuristicPlayer._played_cards),
-    lues depuis l'historique ('RangSuit' -> slot canonique), sous forme multi-hot 32 dims."""
+    """Cards from the donne's already-completed tricks (cf.
+    HeuristicPlayer._played_cards), read from the history ('RankSuit' ->
+    canonical slot), as a 32-dim multi-hot vector."""
     engine = getattr(player, 'engine', None)
     v = [0.0] * 32
     if engine is None or not getattr(engine, 'history', None):
@@ -69,16 +70,15 @@ def _played_before_this_trick(player, suits, orders) -> list:
 
 
 def _slot_counts(vec32) -> list:
-    """Nombre de cartes présentes (0-8) par slot canonique, à partir d'un vecteur
-    multi-hot 32 dims déjà découpé en 4 blocs de 8 par `_canonical_slots`."""
+    """Number of cards present (0-8) per canonical slot, from a 32-dim
+    multi-hot vector already split into 4 blocks of 8 by `_canonical_slots`."""
     return [sum(vec32[s * 8:(s + 1) * 8]) for s in range(4)]
 
 
 def _record_void_from_trick(seat_suit_pairs, void, suits):
-    """Marque comme "sec" (void) dans la couleur demandée tout siège qui a joué
-    une carte d'une autre couleur dans ce pli -- info certaine (pas une
-    supposition) puisque `legal_moves()` impose de fournir la couleur demandée
-    dès qu'on le peut encore."""
+    """Marks as void in the suit led any seat that played a card of a
+    different suit in this trick -- certain info (not a guess), since
+    `legal_moves()` requires following the suit led whenever still possible."""
     if not seat_suit_pairs:
         return
     lead_suit = seat_suit_pairs[0][1]
@@ -91,13 +91,13 @@ def _record_void_from_trick(seat_suit_pairs, void, suits):
 
 
 def _void_vec(player, trick, suits) -> list:
-    """Pour chacun des 3 autres sièges, dans l'ordre relatif à mon propre siège
-    (adversaire suivant, partenaire, adversaire précédent -- jamais moi-même,
-    puisque ma propre composition de couleurs est déjà connue via hand_vec), et
-    pour chacun des 4 slots canoniques : ce siège s'est-il déjà révélé sec dans
-    cette couleur, en ne la fournissant pas quand elle était demandée. Contrairement
-    au comptage global de `_slot_counts`/`unknown_vec`, c'est une info exacte, propre
-    à un siège précis, qui reste valable jusqu'à la fin de la donne."""
+    """For each of the 3 other seats, in order relative to my own seat (next
+    opponent, partner, previous opponent -- never myself, since my own suit
+    composition is already known via hand_vec), and for each of the 4
+    canonical slots: has this seat already revealed itself void in this
+    suit, by not following it when it was led. Unlike the global count from
+    `_slot_counts`/`unknown_vec`, this is exact info specific to one seat,
+    that stays valid until the end of the donne."""
     engine = getattr(player, 'engine', None)
     seat = getattr(player, 'seat', 0)
     void = [[False] * 4 for _ in range(4)]
@@ -117,16 +117,15 @@ def _void_vec(player, trick, suits) -> list:
 
 
 def _auction_signals_vec(player, suits) -> list:
-    """Pour chacun des 3 autres sièges (ordre relatif à mon siège, comme pour les
-    renonces) : a-t-il annoncé/remonté cette couleur au moins une fois pendant
-    les enchères (12 dims), et a-t-il annoncé SA / TA au moins une fois (6 dims)
-    -- même si l'enchère finale a fini ailleurs. Sert à deviner qui détient de
-    l'atout ou des as/valets à partir de ce qui a été annoncé, pas seulement du
-    contrat final retenu."""
+    """For each of the 3 other seats (order relative to my seat, as for
+    voids): did they bid/raise this suit at least once during the auction
+    (12 dims), and did they bid SA / TA at least once (6 dims) -- even if
+    the final bid ended up elsewhere. Used to guess who holds trump or
+    aces/jacks from what was bid, not just from the final retained contract."""
     engine = getattr(player, 'engine', None)
     seat = getattr(player, 'seat', 0)
     bid_suit = [[False] * 4 for _ in range(4)]
-    bid_no_trump = [[False, False] for _ in range(4)]  # [seat] -> [a annonce SA, a annonce TA]
+    bid_no_trump = [[False, False] for _ in range(4)]  # [seat] -> [bid SA, bid TA]
 
     if engine is not None and getattr(engine, 'history', None):
         for entry in engine.history.get('auction', []):
@@ -152,12 +151,12 @@ def _auction_signals_vec(player, suits) -> list:
 
 
 def _led_suit_vec(player, trick, suits) -> list:
-    """Pour chacun des 3 autres sièges : a-t-il déjà mené (ouvert) un pli dans
-    cette couleur au moins une fois cette donne. Distinct du simple comptage de
-    cartes tombées (`played_vec`) : capture une préférence/force de couleur d'un
-    siège précis (heuristiques.md §2.1.2 : rejouer la couleur où le partenaire a
-    fait sa première ouverture), une info que `played_vec` seul ne permet pas de
-    reconstituer puisqu'il ne garde pas la structure "qui a mené quel pli"."""
+    """For each of the 3 other seats: have they already led (opened) a
+    trick in this suit at least once this donne. Distinct from simply
+    counting played cards (`played_vec`): captures a specific seat's suit
+    preference/strength (heuristiques.md §2.1.2: replaying the suit where
+    the partner made their first lead), info that `played_vec` alone can't
+    reconstruct since it doesn't keep the "who led which trick" structure."""
     engine = getattr(player, 'engine', None)
     seat = getattr(player, 'seat', 0)
     led = [[False] * 4 for _ in range(4)]
@@ -182,15 +181,16 @@ def _led_suit_vec(player, trick, suits) -> list:
 
 
 def _points_so_far(player, trump, engine) -> list:
-    """Points de cartes deja engranges par mon camp et par l'adversaire dans
-    les plis COMPLETS de cette donne (le pli en cours n'est pas encore gagne
-    par personne), normalises par un total de reference (152 points de cartes
-    + 10 de der = 162 -- l'echelle reelle differe legerement a TA/SA, mais
-    `trump_vec` permet au reseau de contextualiser). N'inclut ni le 10 de der
-    (connu seulement a la toute fin du dernier pli) ni la belote (cf. l'ecart
-    documente dans CLAUDE.md entre "credite au pli" et l'implementation
-    reelle sur la main initiale, hors-scope ici) -- seulement les points de
-    cartes bruts des plis deja remportes, pour rester simple et sans ambiguite."""
+    """Card points already banked by my side and by the opponents in the
+    COMPLETE tricks of this donne (the current trick isn't won by anyone
+    yet), normalized by a reference total (152 card points + 10 for the
+    last trick = 162 -- the real scale differs slightly in TA/SA, but
+    `trump_vec` lets the network contextualize). Includes neither the
+    last-trick bonus (known only at the very end of the last trick) nor the
+    belote (cf. the gap documented in CLAUDE.md between "credited to the
+    trick" and the actual implementation on the initial hand, out of scope
+    here) -- just the raw card points of tricks already won, to stay simple
+    and unambiguous."""
     seat = getattr(player, 'seat', 0)
     mine, opp = 0, 0
     if engine is not None and getattr(engine, 'history', None):
@@ -207,9 +207,9 @@ def _points_so_far(player, trump, engine) -> list:
 
 
 def _current_trick_winner_seat(trick, trump, engine):
-    """Siège actuellement maître du pli en cours (avant que `player` ne joue sa
-    carte), ou None si le pli est vide. Réutilise `card_order_key` du moteur
-    plutôt que de réimplémenter une troisième logique de force de carte."""
+    """Seat currently winning the trick in progress (before `player` plays
+    their card), or None if the trick is empty. Reuses the engine's
+    `card_order_key` rather than reimplementing a third card-strength logic."""
     if not trick or engine is None:
         return None
     lead_suit = trick[0][1].suit
@@ -221,22 +221,24 @@ def _current_trick_winner_seat(trick, trump, engine):
 
 
 def encode_state(player, trick, trump, ablate_points=False) -> list:
-    """Encode l'état vu par `player` au moment de choisir une carte : sa main, les
-    cartes déjà tombées dans la donne, le pli en cours, le contrat, et si son
-    camp attaque/a pris le contrat. Toujours la même taille (STATE_DIM), quel
-    que soit le nombre de cartes restantes en main ou déjà jouées dans le pli.
+    """Encodes the state seen by `player` when choosing a card: their hand,
+    the cards already played in the donne, the current trick, the
+    contract, and whether their side is attacking/took the contract.
+    Always the same size (STATE_DIM), regardless of how many cards remain
+    in hand or have already been played in the trick.
 
-    Les blocs main/défausses/pli ne sont plus indexés par couleur physique
-    absolue mais par slot canonique relatif à l'atout (`_canonical_slots`) : la
-    symétrie entre les 4 couleurs physiques est ainsi apportée par construction
-    plutôt que laissée à découvrir par le réseau depuis les données.
+    The hand/played/trick blocks are no longer indexed by absolute
+    physical suit but by canonical slot relative to trump
+    (`_canonical_slots`): the symmetry between the 4 physical suits is
+    thus provided by construction rather than left for the network to
+    discover from the data.
 
-    S'y ajoutent des features dérivées résumant ce qu'un joueur réel calcule
-    naturellement (longueur de couleur, cartes inconnues restantes, niveau du
-    contrat, coinche, partenaire maître du pli, points de plis déjà engrangés
-    par camp) : le réseau n'a plus à les reconstituer lui-même par comptage
-    depuis les multi-hot bruts, ce qui accélère l'apprentissage sans retirer
-    l'information brute sous-jacente."""
+    Derived features are added on top, summarizing what a real player
+    naturally computes (suit length, remaining unknown cards, contract
+    level, coinche, partner winning the trick, trick points already
+    banked per side): the network no longer has to reconstruct them
+    itself by counting from the raw multi-hot vectors, which speeds up
+    learning without removing the underlying raw information."""
     engine = getattr(player, 'engine', None)
     taker = getattr(engine, 'taker_idx', None)
     seat = getattr(player, 'seat', 0)
@@ -252,16 +254,16 @@ def encode_state(player, trick, trump, ablate_points=False) -> list:
     pos_vec = _one_hot(len(trick), 4)
     trump_vec = _one_hot(TRUMP_TYPES.index(trump) if trump in TRUMP_TYPES else None, 6)
 
-    # Longueur de couleur : nombre de cartes de ce slot à la donne initiale (pas
-    # la main courante, qui décroît trivialement au fil de la donne et se
-    # retrouve déjà dans hand_vec) -> une propriété stable du jeu de départ,
-    # comme pour la défausse côté HeuristicPlayer (cf. self.initial_hand).
+    # Suit length: number of cards in this slot at the initial deal (not
+    # the current hand, which trivially shrinks over the donne and is
+    # already captured in hand_vec) -> a stable property of the starting
+    # hand, as for discarding on the HeuristicPlayer side (cf. self.initial_hand).
     initial_hand = getattr(player, 'initial_hand', player.hand)
     initial_vec = _relative_multi_hot(initial_hand, suits, orders)
     length_vec = [c / 8.0 for c in _slot_counts(initial_vec)]
 
-    # Cartes inconnues restantes : ni dans ma main courante, ni déjà tombées
-    # (pli en cours inclus) -> encore réparties entre partenaire et adversaires.
+    # Remaining unknown cards: neither in my current hand, nor already
+    # played (current trick included) -> still distributed among partner and opponents.
     hand_counts = _slot_counts(hand_vec)
     played_counts = _slot_counts(played_vec)
     trick_counts = _slot_counts(trick_vec)
@@ -274,28 +276,28 @@ def encode_state(player, trick, trump, ablate_points=False) -> list:
     level_scalar = (getattr(contract, 'level', 0) or 0) / 250.0
     coinched_scalar = 1.0 if getattr(contract, 'coinched', False) else 0.0
 
-    # Points de cartes deja engranges par mon camp / l'adversaire dans les plis
-    # complets -- absent jusqu'ici de l'etat (remarques_rl.md) alors que c'est
-    # un signal direct pour le critic (approche la grandeur qu'il regresse).
-    # `ablate_points` (etude d'ablation) : force ce bloc a zero sans changer
-    # STATE_DIM, pour isoler l'effet de cette feature sur l'acteur toutes
-    # choses egales par ailleurs (meme reseau, meme protocole).
+    # Card points already banked by my side / the opponents in complete
+    # tricks -- previously absent from the state (remarques_rl.md) even
+    # though it's a direct signal for the critic (close to the quantity it
+    # regresses). `ablate_points` (ablation study): forces this block to
+    # zero without changing STATE_DIM, to isolate this feature's effect on
+    # the actor all else being equal (same network, same protocol).
     points_vec = [0.0, 0.0] if ablate_points else _points_so_far(player, trump, engine)
 
     winner_seat = _current_trick_winner_seat(trick, trump, engine)
     partner_winning = 1.0 if (winner_seat is not None and winner_seat == (seat + 2) % 4) else 0.0
 
-    # Renonces : quels sièges (hors moi-même) se sont déjà révélés secs dans
-    # quelle couleur, en ne la fournissant pas -- info certaine, contrairement à
-    # l'ambiguïté partenaire/adversaire tolérée ailleurs sur les cartes non vues.
+    # Voids: which seats (other than myself) have already revealed
+    # themselves void in which suit, by not following it -- certain info,
+    # unlike the partner/opponent ambiguity tolerated elsewhere for unseen cards.
     void_vec = _void_vec(player, trick, suits)
 
-    # Enchères : qui (parmi les 3 autres sièges) a annoncé/remonté quelle
-    # couleur ou SA/TA -- signal de qui détient l'atout ou des as/valets.
+    # Bidding: who (among the 3 other seats) bid/raised which suit or
+    # SA/TA -- signal of who holds trump or aces/jacks.
     auction_vec = _auction_signals_vec(player, suits)
 
-    # Qui a déjà mené (ouvert) un pli dans quelle couleur -- préférence/force de
-    # couleur par siège, distincte du simple comptage de cartes tombées.
+    # Who has already led (opened) a trick in which suit -- suit
+    # preference/strength per seat, distinct from simply counting played cards.
     led_vec = _led_suit_vec(player, trick, suits)
 
     return (hand_vec + played_vec + trick_vec + lead_vec + pos_vec + trump_vec
@@ -308,11 +310,11 @@ STATE_DIM = 32 + 32 + 32 + 4 + 4 + 6 + 2 + 4 + 4 + 3 + 2 + 12 + 18 + 12  # 167
 
 
 def _other_hands_vec(player, suits, orders) -> list:
-    """Mains ACTUELLES des 3 autres sieges (ordre relatif a mon siege, comme
-    void_vec/auction_vec/led_vec) -- information privilegiee que l'acteur ne
-    voit jamais (il ne connait que sa propre main), reservee au critic
-    centralise (cf. encode_full_state) : en simulation d'entrainement les 4
-    mains sont connues du process, meme si un joueur reel ne les verrait pas."""
+    """CURRENT hands of the 3 other seats (order relative to my seat, as
+    for void_vec/auction_vec/led_vec) -- privileged information the actor
+    never sees (it only knows its own hand), reserved for the centralized
+    critic (cf. encode_full_state): during training simulation all 4 hands
+    are known to the process, even though a real player would never see them."""
     engine = getattr(player, 'engine', None)
     seat = getattr(player, 'seat', 0)
     v = []
@@ -324,13 +326,13 @@ def _other_hands_vec(player, suits, orders) -> list:
 
 
 def _other_trump_counts(player, suits) -> list:
-    """Nombre de cartes actuellement en main dans le slot canonique atout
-    (slot 0, cf. _canonical_slots -- atout reel pour un contrat couleur ;
-    notion degeneree mais bien definie a SA/TA ou tous les slots suivent
-    la meme convention), pour chacun des 3 autres sieges -- meme ordre
-    relatif que _other_hands_vec. Cible d'entrainement de la tache
-    auxiliaire de SharedTrunkActorCriticAux, jamais visible par l'acteur
-    en jeu reel (info privilegiee, disponible seulement en simulation)."""
+    """Number of cards currently in hand in the canonical trump slot (slot
+    0, cf. _canonical_slots -- real trump for a suit contract; a
+    degenerate but well-defined notion in SA/TA where all slots follow
+    the same convention), for each of the 3 other seats -- same relative
+    order as _other_hands_vec. Training target for
+    SharedTrunkActorCriticAux's auxiliary task, never visible to the
+    actor in real play (privileged info, only available in simulation)."""
     engine = getattr(player, 'engine', None)
     seat = getattr(player, 'seat', 0)
     trump_suit = suits[0]
@@ -343,22 +345,22 @@ def _other_trump_counts(player, suits) -> list:
 
 
 def other_trump_counts(player, trump) -> list:
-    """Cf. _other_trump_counts -- calcule suits/orders lui-meme (meme
-    convention d'appel que encode_full_state)."""
+    """See _other_trump_counts -- computes suits/orders itself (same
+    calling convention as encode_full_state)."""
     suits, _orders = _canonical_slots(trump)
     return _other_trump_counts(player, suits)
 
 
 def encode_full_state(player, trick, trump, ablate_points=False) -> list:
-    """Etat CENTRALISE pour le critic : encode_state() (ce qu'un joueur reel
-    voit) + les mains actuelles des 3 autres sieges -- information
-    privilegiee, disponible seulement parce qu'on simule la donne en entier
-    a l'entrainement, jamais utilisable par l'acteur en jeu reel. Analogue a
-    un joueur humain qui revoit la donne complete apres coup pour comprendre
-    ce qu'il aurait fallu faire : le critic apprend depuis cette vue
-    complete, l'acteur continue de decider depuis sa vue partielle
-    (encode_state) -- les deux sont des reseaux independants (ValueNet vs
-    CardNet, train_ppo.py), donc rien n'empeche cette asymetrie d'info."""
+    """CENTRALIZED state for the critic: encode_state() (what a real
+    player sees) + the current hands of the 3 other seats -- privileged
+    information, only available because we simulate the whole donne
+    during training, never usable by the actor in real play. Analogous to
+    a human player reviewing the complete donne afterward to understand
+    what should have been done: the critic learns from this complete
+    view, the actor keeps deciding from its partial view (encode_state)
+    -- the two are independent networks (ValueNet vs CardNet,
+    train_ppo.py), so nothing prevents this information asymmetry."""
     suits, orders = _canonical_slots(trump)
     return encode_state(player, trick, trump, ablate_points=ablate_points) + _other_hands_vec(player, suits, orders)
 
@@ -367,8 +369,8 @@ FULL_STATE_DIM = STATE_DIM + 3 * 32  # 167 + 96 = 263
 
 
 class SimplePolicy:
-    """Politique aléatoire (parmi les coups légaux) : repli sans torch, et
-    adversaire de référence pour vérifier qu'une policy entraînée progresse."""
+    """Random policy (among legal moves): fallback without torch, and
+    reference opponent to check that a trained policy is actually improving."""
     def __init__(self, seed: int = None):
         self.rng = random.Random(seed)
         self.record = False
@@ -382,22 +384,23 @@ if torch is not None:
         def __init__(self, in_dim=STATE_DIM, hidden=128):
             super().__init__()
             self.fc1 = nn.Linear(in_dim, hidden)
-            self.fc2 = nn.Linear(hidden, 32)  # un logit par slot canonique (couleur relative x rang)
+            self.fc2 = nn.Linear(hidden, 32)  # one logit per canonical slot (relative suit x rank)
 
         def forward(self, x):
             x = F.relu(self.fc1(x))
             return self.fc2(x)
 
     class CardNetBig(nn.Module):
-        """Variante plus profonde de CardNet (remarques_rl.md point 6) : teste si
-        1 seule couche cachee de 128 est un plafond de capacite (l'imitation sature
-        a ~92-93% d'accuracy, pas 99%, avec CardNet). N'existe qu'a cote de CardNet
-        (jamais modifiee en place) pour que les configs deja validees restent
-        chargeables/reproductibles a l'identique.
+        """Deeper variant of CardNet (remarques_rl.md point 6): tests
+        whether a single 128-unit hidden layer is a capacity ceiling
+        (imitation saturates at ~92-93% accuracy, not 99%, with CardNet).
+        Exists only alongside CardNet (never modified in place) so
+        already-validated configs stay loadable/reproducible exactly as
+        they were.
 
-        LayerNorm en Pre-LN (avant chaque couche lineaire, pas apres) : stabilise
-        l'entrainement d'un MLP plus profond, meme motivation que les blocs Pre-LN
-        des transformers."""
+        Pre-LN LayerNorm (before each linear layer, not after): stabilizes
+        training of a deeper MLP, same motivation as transformers' Pre-LN
+        blocks."""
         def __init__(self, in_dim=STATE_DIM, hidden1=128, hidden2=128, hidden3=64):
             super().__init__()
             self.ln1 = nn.LayerNorm(in_dim)
@@ -416,47 +419,48 @@ if torch is not None:
             return self.fc4(self.ln4(x))
 
     class SharedTrunkActorCritic(nn.Module):
-        """Etape 2 du plan (remarques_rl.md point 6) : tronc partage entre
-        l'acteur et le critic centralise, pour que l'info privilegiee (mains
-        des 3 autres, cf. encode_full_state) puisse enfin influencer la
-        representation de l'acteur -- contrairement au critic centralise
-        deja teste (ValueNet independant de CardNet, sans effet possible sur
-        l'acteur par construction, cf. rl_experiments_v3/README.md).
+        """Step 2 of the plan (remarques_rl.md point 6): shared trunk
+        between the actor and the centralized critic, so the privileged
+        info (the 3 others' hands, cf. encode_full_state) can finally
+        influence the actor's representation -- unlike the centralized
+        critic already tested (ValueNet independent of CardNet, with no
+        possible effect on the actor by construction, cf.
+        rl_experiments_v3/README.md).
 
-        Tronc partage (ln1/fc1/ln2/fc2, 167->128->128) : memes noms de
-        parametres et memes formes que les 2 premieres couches de
-        CardNetBig, pour pouvoir reprendre un imit_bignet*.pt deja entraine
-        comme point de depart (cf. load_actor_from_cardnetbig ci-dessous).
+        Shared trunk (ln1/fc1/ln2/fc2, 167->128->128): same parameter
+        names and shapes as CardNetBig's first 2 layers, so an
+        already-trained imit_bignet*.pt can be reused as a starting point
+        (cf. load_actor_from_cardnetbig below).
 
-        Tete acteur (ln3_actor/fc3_actor/ln4_actor/fc4_actor, 128->64->32) :
-        reprend a l'identique la 2e moitie de CardNetBig -- meme
-        remappage possible depuis un checkpoint CardNetBig existant.
+        Actor head (ln3_actor/fc3_actor/ln4_actor/fc4_actor, 128->64->32):
+        identical to CardNetBig's second half -- same remapping possible
+        from an existing CardNetBig checkpoint.
 
-        Tete critic : recoit en plus l'info centralisee (mains des 3 autres,
-        96-dim, deja dans encode_full_state) via une petite branche separee
-        a une seule couche (ln_central/fc_central, 96->32 -- volontairement
-        peu profonde, cf. discussion du 2026-07-27 : role plus structurel
-        que strategique, la profondeur utile est deja dans le tronc partage
-        et la tete critic elle-meme), concatenee a la sortie du tronc
-        partage (128+32=160) avant 1 couche cachee privee
-        (ln3_critic/fc3_critic, 160->64) puis la sortie scalaire
+        Critic head: additionally receives the centralized info (the 3
+        others' hands, 96-dim, already in encode_full_state) through a
+        small, separate single-layer branch (ln_central/fc_central,
+        96->32 -- deliberately shallow, cf. the 2026-07-27 discussion: a
+        more structural than strategic role, the useful depth is already
+        in the shared trunk and the critic head itself), concatenated to
+        the shared trunk's output (128+32=160) before 1 private hidden
+        layer (ln3_critic/fc3_critic, 160->64) then the scalar output
         (ln4_critic/fc4_critic, 64->1)."""
         def __init__(self, in_dim=STATE_DIM, other_dim=FULL_STATE_DIM - STATE_DIM,
                      trunk_hidden=128, actor_hidden=64, central_hidden=32, critic_hidden=64):
             super().__init__()
-            # Tronc partage (identique en forme/noms aux 2 premieres couches de CardNetBig).
+            # Shared trunk (identical in shape/names to CardNetBig's first 2 layers).
             self.ln1 = nn.LayerNorm(in_dim)
             self.fc1 = nn.Linear(in_dim, trunk_hidden)
             self.ln2 = nn.LayerNorm(trunk_hidden)
             self.fc2 = nn.Linear(trunk_hidden, trunk_hidden)
 
-            # Tete acteur (identique en forme/noms a la 2e moitie de CardNetBig).
+            # Actor head (identical in shape/names to CardNetBig's second half).
             self.ln3_actor = nn.LayerNorm(trunk_hidden)
             self.fc3_actor = nn.Linear(trunk_hidden, actor_hidden)
             self.ln4_actor = nn.LayerNorm(actor_hidden)
             self.fc4_actor = nn.Linear(actor_hidden, 32)
 
-            # Branche info centralisee (critic seul) + tete critic.
+            # Centralized info branch (critic only) + critic head.
             self.ln_central = nn.LayerNorm(other_dim)
             self.fc_central = nn.Linear(other_dim, central_hidden)
             self.ln3_critic = nn.LayerNorm(trunk_hidden + central_hidden)
@@ -477,10 +481,10 @@ if torch is not None:
             return self.fc4_actor(self.ln4_actor(h))
 
         def forward(self, x):
-            """Alias de forward_actor -- pour que NeuralPolicy (train.py, appelle
-            net(x) directement) puisse charger ce checkpoint comme adversaire
-            fige glouton dans un pool grandissant (cf. make_opponent_factory) :
-            seule la tete acteur compte pour un adversaire, jamais mis a jour."""
+            """Alias for forward_actor -- so NeuralPolicy (train.py, calls
+            net(x) directly) can load this checkpoint as a frozen greedy
+            opponent in a growing pool (cf. make_opponent_factory): only
+            the actor head matters for an opponent, which is never updated."""
             return self.forward_actor(x)
 
         def forward_critic(self, x_full):
@@ -493,13 +497,13 @@ if torch is not None:
             return self.fc4_critic(self.ln4_critic(h)).squeeze(-1)
 
         def load_actor_from_cardnetbig(self, path, map_location='cpu'):
-            """Reprend le tronc partage + la tete acteur depuis un checkpoint
-            CardNetBig deja entraine (ex. imit_bignet_ent02.pt) -- meme forme,
-            simple remappage de noms (fc3/ln3/fc4/ln4 -> *_actor). La partie
-            critic (branche centralisee + tete critic) reste initialisee
-            aleatoirement : rien d'equivalent n'existe dans un checkpoint
-            CardNetBig (reseau independant, jamais entraine avec l'info
-            centralisee)."""
+            """Loads the shared trunk + actor head from an already-trained
+            CardNetBig checkpoint (e.g. imit_bignet_ent02.pt) -- same
+            shape, simple name remapping (fc3/ln3/fc4/ln4 -> *_actor). The
+            critic part (centralized branch + critic head) stays randomly
+            initialized: nothing equivalent exists in a CardNetBig
+            checkpoint (an independent network, never trained with the
+            centralized info)."""
             obj = torch.load(path, map_location=map_location)
             state_dict = obj['policy'] if isinstance(obj, dict) and 'policy' in obj else obj
             remap = {
@@ -518,25 +522,24 @@ if torch is not None:
             self.load_state_dict(own_state)
 
     class SharedTrunkActorCriticAux(SharedTrunkActorCritic):
-        """SharedTrunkActorCritic + une 3e tete auxiliaire (rl_experiments_v5,
-        discussion du 2026-07-27) : predit le nombre d'atouts restants chez
-        chacun des 3 autres sieges (cf. other_trump_counts), depuis le tronc
-        partage SEUL (h, sortie de _trunk) -- PAS depuis la branche info-
-        centralisee du critic (fc_central/c, cf. forward_critic).
+        """SharedTrunkActorCritic + a 3rd auxiliary head (rl_experiments_v5,
+        2026-07-27 discussion): predicts the number of trumps remaining
+        with each of the 3 other seats (cf. other_trump_counts), from the
+        shared trunk ALONE (h, the output of _trunk) -- NOT from the
+        critic's centralized info branch (fc_central/c, cf. forward_critic).
 
-        Ce choix est deliberer : si la tete auxiliaire voyait aussi c (comme
-        le fait deja la tete critic), le reseau pourrait "tricher" -- lire
-        la reponse quasi directement dans c sans avoir besoin d'encoder quoi
-        que ce soit dans h, ce qui viderait la tache auxiliaire de son
-        interet (forcer le tronc PARTAGE avec l'acteur a representer cette
-        info). En ne voyant que h, la seule facon de reduire cette perte est
-        d'ameliorer h lui-meme -- son gradient influence donc directement ce
-        que l'acteur utilise aussi, contrairement au critic centralise (qui
-        a ce raccourci via c, et pousse donc plus faiblement sur le tronc).
+        This choice is deliberate: if the auxiliary head also saw c (as
+        the critic head already does), the network could "cheat" --
+        reading the answer almost directly out of c without needing to
+        encode anything in h, which would empty the auxiliary task of its
+        purpose (forcing the trunk SHARED with the actor to represent
+        this info). Seeing only h, the only way to reduce this loss is to
+        improve h itself -- its gradient therefore directly influences
+        what the actor also uses, unlike the centralized critic (which
+        has this shortcut via c, and so pushes more weakly on the trunk).
 
-        Une seule couche cachee (meme profondeur que la branche info-
-        centralisee du critic, meme raisonnement : role plus structurel que
-        strategique)."""
+        A single hidden layer (same depth as the critic's centralized
+        info branch, same reasoning: a more structural than strategic role)."""
         def __init__(self, in_dim=STATE_DIM, other_dim=FULL_STATE_DIM - STATE_DIM,
                      trunk_hidden=128, actor_hidden=64, central_hidden=32, critic_hidden=64,
                      aux_hidden=32, n_aux=3):
@@ -554,35 +557,35 @@ if torch is not None:
             return self.fc_aux_out(self.ln_aux2(h))
 
     class SharedTrunkActorCriticDeep(nn.Module):
-        """Rebalancement tronc/tetes de SharedTrunkActorCritic (design exact de
-        l'utilisateur, discussion du 2026-07-28) : tronc plus profond (3 couches
-        au lieu de 2), tete acteur plus courte (1 couche au lieu de 2). Classe
-        independante (pas une sous-classe de SharedTrunkActorCritic -- structure
-        du tronc/de la tete critic trop differente pour une heritage propre),
-        meme convention que CardNetBig/CardNet : jamais modifie les classes
-        existantes en place.
+        """Trunk/heads rebalancing of SharedTrunkActorCritic (the user's
+        exact design, 2026-07-28 discussion): deeper trunk (3 layers
+        instead of 2), shorter actor head (1 layer instead of 2).
+        Independent class (not a subclass of SharedTrunkActorCritic --
+        the trunk/critic-head structure is too different for a clean
+        inheritance), same convention as CardNetBig/CardNet: never
+        modifies existing classes in place.
 
-        Tronc partage (ln1/fc1/ln2/fc2/ln3/fc3, 167->128->128->64) : couvre
-        EXACTEMENT les 3 premieres couches de CardNetBig (memes noms/formes,
-        contrairement a SharedTrunkActorCritic qui ne reprenait que les 2
-        premieres) -- meme raisonnement, pouvoir repartir d'un imit_bignet*.pt
-        deja entraine (cf. load_actor_from_cardnetbig).
+        Shared trunk (ln1/fc1/ln2/fc2/ln3/fc3, 167->128->128->64): covers
+        EXACTLY CardNetBig's first 3 layers (same names/shapes, unlike
+        SharedTrunkActorCritic which only reused the first 2) -- same
+        reasoning, being able to restart from an already-trained
+        imit_bignet*.pt (cf. load_actor_from_cardnetbig).
 
-        Tete acteur (ln4_actor/fc4_actor, 64->32) : une seule couche, la
-        derniere de CardNetBig renommee -- toute la profondeur de la 2e moitie
-        de CardNetBig est donc passee au tronc partage plutot qu'a l'acteur.
+        Actor head (ln4_actor/fc4_actor, 64->32): a single layer,
+        CardNetBig's last one renamed -- so all the depth of CardNetBig's
+        second half is handed to the shared trunk rather than the actor.
 
-        Tete critic : branche info centralisee (ln_central/fc_central, 96->64
-        -- desormais egale a la dimension de sortie du tronc, un partage plus
-        equilibre que les 128 vs 32 de SharedTrunkActorCritic) concatenee a la
-        sortie du tronc (64+64=128) avant 1 couche cachee privee
-        (ln3_critic/fc3_critic, 128->32) puis la sortie scalaire
-        (ln4_critic/fc4_critic, 32->1)."""
+        Critic head: centralized info branch (ln_central/fc_central,
+        96->64 -- now equal to the trunk's output dimension, a more
+        balanced split than SharedTrunkActorCritic's 128 vs 32)
+        concatenated to the trunk's output (64+64=128) before 1 private
+        hidden layer (ln3_critic/fc3_critic, 128->32) then the scalar
+        output (ln4_critic/fc4_critic, 32->1)."""
         def __init__(self, in_dim=STATE_DIM, other_dim=FULL_STATE_DIM - STATE_DIM,
                      trunk_hidden1=128, trunk_hidden2=128, trunk_hidden3=64,
                      central_hidden=64, critic_hidden=32):
             super().__init__()
-            # Tronc partage (3 couches, identique en forme/noms aux 3 premieres de CardNetBig).
+            # Shared trunk (3 layers, identical in shape/names to CardNetBig's first 3).
             self.ln1 = nn.LayerNorm(in_dim)
             self.fc1 = nn.Linear(in_dim, trunk_hidden1)
             self.ln2 = nn.LayerNorm(trunk_hidden1)
@@ -590,11 +593,11 @@ if torch is not None:
             self.ln3 = nn.LayerNorm(trunk_hidden2)
             self.fc3 = nn.Linear(trunk_hidden2, trunk_hidden3)
 
-            # Tete acteur (1 seule couche, la derniere de CardNetBig).
+            # Actor head (a single layer, CardNetBig's last one).
             self.ln4_actor = nn.LayerNorm(trunk_hidden3)
             self.fc4_actor = nn.Linear(trunk_hidden3, 32)
 
-            # Branche info centralisee (critic seul) + tete critic.
+            # Centralized info branch (critic only) + critic head.
             self.ln_central = nn.LayerNorm(other_dim)
             self.fc_central = nn.Linear(other_dim, central_hidden)
             self.ln3_critic = nn.LayerNorm(trunk_hidden3 + central_hidden)
@@ -615,9 +618,8 @@ if torch is not None:
             return self.fc4_actor(self.ln4_actor(h))
 
         def forward(self, x):
-            """Alias de forward_actor -- cf. SharedTrunkActorCritic.forward
-            (meme raison : chargement comme adversaire fige du pool via
-            NeuralPolicy)."""
+            """Alias for forward_actor -- see SharedTrunkActorCritic.forward
+            (same reason: loading as a frozen pool opponent via NeuralPolicy)."""
             return self.forward_actor(x)
 
         def forward_critic(self, x_full):
@@ -630,13 +632,13 @@ if torch is not None:
             return self.fc4_critic(self.ln4_critic(h)).squeeze(-1)
 
         def load_actor_from_cardnetbig(self, path, map_location='cpu'):
-            """Reprend le tronc (3 couches) + la tete acteur (derniere couche)
-            depuis un checkpoint CardNetBig deja entraine -- ici les 4 couches
-            de CardNetBig couvrent EXACTEMENT tronc+tete (167->128->128->64
-            puis 64->32), donc un remap plus direct que
-            SharedTrunkActorCritic.load_actor_from_cardnetbig (seule la
-            derniere couche est renommee, fc1/ln1/fc2/ln2/fc3/ln3 sont deja
-            aux memes noms)."""
+            """Loads the trunk (3 layers) + actor head (last layer) from
+            an already-trained CardNetBig checkpoint -- here CardNetBig's
+            4 layers cover EXACTLY trunk+head (167->128->128->64 then
+            64->32), so a more direct remap than
+            SharedTrunkActorCritic.load_actor_from_cardnetbig (only the
+            last layer is renamed, fc1/ln1/fc2/ln2/fc3/ln3 already share
+            the same names)."""
             obj = torch.load(path, map_location=map_location)
             state_dict = obj['policy'] if isinstance(obj, dict) and 'policy' in obj else obj
             own_state = self.state_dict()
@@ -651,9 +653,10 @@ if torch is not None:
             self.load_state_dict(own_state)
 
     class NeuralPolicy:
-        """Policy entraînable par REINFORCE. `record=True` (par défaut) échantillonne
-        et mémorise le log-prob de chaque décision ; `record=False` (évaluation)
-        joue en glouton (argmax) sans toucher au buffer de trajectoire."""
+        """Policy trainable via REINFORCE. `record=True` (default) samples
+        and stores the log-prob of each decision; `record=False`
+        (evaluation) plays greedily (argmax) without touching the
+        trajectory buffer."""
         def __init__(self, device='cpu', lr=1e-3, baseline_beta=0.95, entropy_beta=0.01, net_cls=CardNet):
             self.device = device
             self.net = net_cls().to(device)
@@ -663,9 +666,9 @@ if torch is not None:
             self.saved_entropies = []
             self.baseline = 0.0
             self.baseline_beta = baseline_beta
-            # Bonus d'entropie (cf. remarques_rl.md point 4) : force l'exploration
-            # pendant le REINFORCE meme si la policy demarre tres confiante apres un
-            # pre-entrainement par imitation pousse a convergence (pretrain.py).
+            # Entropy bonus (cf. remarques_rl.md point 4): forces
+            # exploration during REINFORCE even if the policy starts out
+            # very confident after imitation pretraining run to convergence (pretrain.py).
             self.entropy_beta = entropy_beta
 
         def choose_card(self, player, legal, leader, trick, trump):
@@ -690,12 +693,12 @@ if torch is not None:
             return next(c for c in legal if c.suit == chosen_suit and c.rank == chosen_rank)
 
         def update(self, reward: float):
-            """Une mise à jour REINFORCE par donne : loss = -(somme des log-probs de
-            la trajectoire, les deux sièges de l'équipe confondus) * avantage, où
-            l'avantage est la reward moins une moyenne mobile (baseline) pour
-            réduire la variance, moins un bonus d'entropie (`entropy_beta`) qui
-            pousse la policy à rester exploratoire. Vide les buffers de
-            trajectoire après coup."""
+            """One REINFORCE update per donne: loss = -(sum of the
+            trajectory's log-probs, both team seats combined) * advantage,
+            where the advantage is the reward minus a moving average
+            (baseline) to reduce variance, minus an entropy bonus
+            (`entropy_beta`) that pushes the policy to stay exploratory.
+            Clears the trajectory buffers afterward."""
             if not self.saved_log_probs:
                 return
             advantage = reward - self.baseline
@@ -712,10 +715,10 @@ if torch is not None:
             torch.save(self.net.state_dict(), path)
 
         def load(self, path):
-            """Accepte aussi bien un state_dict CardNet brut (imit.pt, segments
-            REINFORCE) qu'un checkpoint PPO natif (dict a cle 'policy', cf.
-            PPOPolicy.save() dans train_ppo.py) -- necessaire pour que
-            make_opponent_factory (train.py) puisse charger un checkpoint PPO
-            comme adversaire fige dans un pool (run_growing_pool_ppo.py)."""
+            """Accepts either a raw CardNet state_dict (imit.pt, REINFORCE
+            segments) or a native PPO checkpoint (dict with a 'policy'
+            key, cf. PPOPolicy.save() in train_ppo.py) -- needed so
+            make_opponent_factory (train.py) can load a PPO checkpoint as
+            a frozen opponent in a pool (run_growing_pool_ppo.py)."""
             obj = torch.load(path, map_location=self.device)
             self.net.load_state_dict(obj['policy'] if 'policy' in obj else obj)

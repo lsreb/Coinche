@@ -62,11 +62,11 @@ class HeuristicPlayer(Player):
         self.variant = variant
 
     # ---------------------------------------------------------------
-    # Enchères (section 1 de heuristiques.md)
+    # Bidding (section 1 of heuristiques.md)
     # ---------------------------------------------------------------
 
     def _last_bid_info(self):
-        """Retourne (seat, bid) de la dernière enchère réellement faite dans l'enchère en cours."""
+        """Returns (seat, bid) of the last bid actually made in the current auction."""
         engine = getattr(self, 'engine', None)
         if engine is None or not getattr(engine, 'history', None):
             return None
@@ -76,11 +76,12 @@ class HeuristicPlayer(Player):
         return None
 
     def _count_tricks(self, trump_suit: Optional[str], hi: str = 'A', lo: str = '10', third: str = 'K') -> int:
-        # 1 pli par atout (si trump_suit fourni), puis dans chaque couleur : 1/maitre
-        # (hi), 1/second (lo) troisieme, 2 pour lo+third troisieme, 2 pour hi+lo
-        # meme couleur. A SA (pas d'atout, hi='A'/lo='10'/third='K') et a TA (toutes
-        # les couleurs comptent, hi='J'/lo='9'/third='A') on appelle avec
-        # trump_suit=None : aucune couleur n'est alors exclue de la boucle.
+        # 1 trick per trump card (if trump_suit given), then in each suit: 1 for
+        # the master (hi), 1 for the second (lo) if it's the third card, 2 for
+        # lo+third as the third card, 2 for hi+lo in the same suit. For SA (no
+        # trump, hi='A'/lo='10'/third='K') and TA (all suits count,
+        # hi='J'/lo='9'/third='A') this is called with trump_suit=None: no suit
+        # is then excluded from the loop.
         tricks = count_suit(self.hand, trump_suit) if trump_suit else 0
         for s in SUITS:
             if s == trump_suit:
@@ -98,13 +99,13 @@ class HeuristicPlayer(Player):
         return tricks
 
     def _decrochage_ok(self, own_level: int, opp_level: int) -> bool:
-        # Le décrochage tolère un "petit mensonge" d'un seul palier (10 points) au-delà
-        # de ce que la main justifie vraiment : une main à 100 peut dire 110 quand
-        # l'adversaire a dit 100, mais une main à 80 ne peut pas sauter jusqu'à 110.
+        # A "décrochage" (competitive overcall) tolerates a "small lie" of one
+        # level (10 points) beyond what the hand truly justifies: a 100-hand
+        # can say 110 when the opponent said 100, but an 80-hand can't jump to 110.
         return own_level >= opp_level - 10
 
     def _my_last_bid(self):
-        """Retourne ma propre dernière offre faite dans l'enchère en cours (ou None)."""
+        """Returns my own last offer made in the current auction (or None)."""
         engine = getattr(self, 'engine', None)
         seat = getattr(self, 'seat', None)
         if engine is None or not getattr(engine, 'history', None):
@@ -115,9 +116,9 @@ class HeuristicPlayer(Player):
         return None
 
     def _last_partner_bid(self):
-        """Dernière offre de mon partenaire dans l'enchère en cours, même si un
-        adversaire a enchéri depuis (contrairement à _last_bid_info, qui ne regarde
-        que la toute dernière offre de l'enchère)."""
+        """My partner's last offer in the current auction, even if an opponent
+        has bid since (unlike _last_bid_info, which only looks at the very
+        last offer of the auction)."""
         engine = getattr(self, 'engine', None)
         seat = getattr(self, 'seat', None)
         if engine is None or not getattr(engine, 'history', None) or seat is None:
@@ -129,11 +130,11 @@ class HeuristicPlayer(Player):
         return None
 
     def _team_last_bidder_is_me(self) -> bool:
-        # Vrai si, entre mon partenaire et moi, je suis le dernier a avoir
-        # reellement enchéri (pas passé) dans cette enchère -- y compris si mon
-        # partenaire n'a jamais enchéri du tout. Sert à interdire le décrochage
-        # (heuristiques.md §1.1) quand mon partenaire ne m'a apporté aucune
-        # information nouvelle depuis ma propre dernière annonce.
+        # True if, between my partner and me, I am the last one to have
+        # actually bid (not passed) in this auction -- including if my
+        # partner never bid at all. Used to forbid décrochage (heuristiques.md
+        # §1.1) when my partner hasn't given me any new information since my
+        # own last bid.
         engine = getattr(self, 'engine', None)
         seat = getattr(self, 'seat', None)
         if engine is None or not getattr(engine, 'history', None) or seat is None:
@@ -149,11 +150,11 @@ class HeuristicPlayer(Player):
         return False
 
     def _decrochage_adjusted_level(self, bidder_seat, bid):
-        # Si l'enchère `bid` de `bidder_seat` suit immédiatement une offre adverse d'un
-        # palier inférieur, elle peut elle-même être un décrochage : elle représente
-        # alors un palier réel inférieur de 10 à ce qu'elle annonce. On retrouve
-        # l'enchère précise dans l'historique (pas juste l'avant-dernière), car cette
-        # fonction peut être appelée bien après coup, sur une enchère passée.
+        # If `bidder_seat`'s `bid` immediately follows an opposing offer at a
+        # lower level, it may itself be a décrochage: it then represents a
+        # real level 10 lower than what it announces. We look up the exact
+        # bid in the history (not just the previous one), since this function
+        # can be called well after the fact, on a past bid.
         level = bid[0]
         engine = getattr(self, 'engine', None)
         if engine is not None and getattr(engine, 'history', None):
@@ -172,9 +173,10 @@ class HeuristicPlayer(Player):
         return aces_table.get(self._decrochage_adjusted_level(bidder_seat, bid), 0)
 
     def _my_earlier_bid_of_type(self, bid_type):
-        """Ma première offre de ce type (SA/TA) dans l'enchère en cours, si j'en ai
-        fait une avant l'offre actuelle du partenaire (signe que sa remontée inclut
-        déjà l'information que j'ai moi-même révélée, à ne pas recompter)."""
+        """My first offer of this type (SA/TA) in the current auction, if I
+        made one before my partner's current offer (a sign that their raise
+        already includes the information I revealed myself, not to be
+        recounted)."""
         engine = getattr(self, 'engine', None)
         seat = getattr(self, 'seat', None)
         if engine is None or not getattr(engine, 'history', None) or seat is None:
@@ -186,9 +188,10 @@ class HeuristicPlayer(Player):
         return None
 
     def _partner_sa_to_color(self, partner_seat, partner_bid, own_color_candidates):
-        # On peut basculer sur sa propre couleur plutôt que de simplement soutenir le
-        # SA du partenaire, en s'appuyant sur les as déjà révélés par son annonce SA
-        # (moins un, potentiellement à l'atout choisi) : voir heuristiques.md §1.1.
+        # We can switch to our own suit rather than simply supporting
+        # partner's SA, relying on the aces already revealed by their SA bid
+        # (minus one, potentially at the chosen trump suit): see
+        # heuristiques.md §1.1.
         if not own_color_candidates or 'sa_partner_credit' in self._raise_contributions:
             return None
         known_aces = self._sa_known_aces(partner_seat, partner_bid)
@@ -200,10 +203,10 @@ class HeuristicPlayer(Player):
         return (level + 10 * credited_aces, trump, False, False)
 
     def _partner_color_remonte(self, partner_bid):
-        # Chaque type d'information (soutien d'atout, as exter) n'est révélé qu'une
-        # fois par donne : deux partenaires ne doivent pas se relancer indéfiniment
-        # sur la même carte, mais peuvent remonter à des tours différents pour des
-        # raisons différentes.
+        # Each type of information (trump support, outside ace) is only
+        # revealed once per donne: two partners shouldn't keep re-raising on
+        # the same card, but can raise on different rounds for different
+        # reasons.
         level, trump = partner_bid[0], partner_bid[1]
         if trump in ('SA', 'TA'):
             return None
@@ -223,9 +226,10 @@ class HeuristicPlayer(Player):
             exter_aces = sum(1 for c in self.hand if c.rank == 'A' and c.suit != trump)
             my_last_bid = self._my_last_bid()
             if exter_aces > 0 and my_last_bid is not None and my_last_bid[1] == 'SA':
-                # Mon partenaire a basculé sur cette couleur (_partner_sa_to_color) en se
-                # basant sur mon SA : il a déjà crédité (as supposés - 1) de mes as. Je ne
-                # dois ajouter que ceux qui restent, pas recompter mes as moins un.
+                # My partner switched to this suit (_partner_sa_to_color)
+                # based on my SA: they already credited (assumed aces - 1) of
+                # my aces. I should only add what's left, not recount my aces
+                # minus one.
                 seat = getattr(self, 'seat', None)
                 assumed = self._sa_known_aces(seat, my_last_bid)
                 already_credited = max(0, assumed - 1)
@@ -238,10 +242,11 @@ class HeuristicPlayer(Player):
         return (new_level, trump, False, False) if new_level > level else None
 
     def _combined_count(self, partner_bid, bid_type, my_count):
-        # Combien de cartes maitresses (as pour SA, valets pour TA) l'équipe a-t-elle
-        # réellement, en cumulant l'annonce (décrochage compris) du partenaire et les
-        # miennes ? Si la remontée du partenaire vient elle-même de ma propre annonce
-        # antérieure du même type, mes cartes y sont déjà comptées : pas de double compte.
+        # How many master cards (aces for SA, jacks for TA) does the team
+        # actually have, combining the partner's bid (décrochage included)
+        # and my own? If the partner's raise itself comes from my own
+        # earlier bid of the same type, my cards are already counted there:
+        # no double counting.
         table = {80: 2, 90: 3, 100: 4}
         partner_seat = (getattr(self, 'seat', 0) + 2) % 4
         genuine_level = self._decrochage_adjusted_level(partner_seat, partner_bid)
@@ -259,12 +264,12 @@ class HeuristicPlayer(Player):
             new_level += 10 * my_aces
             contrib.add('sa_aces')
         combined_aces = self._combined_count(partner_bid, 'SA', my_aces)
-        # Comme a la couleur, avoir tous les as ne suffit pas a annoncer les 10 non-secs
-        # par-dessus : il faut au moins 4 plis reellement comptes dans sa propre main
-        # (meme methode que le decrochage couleur), sans quoi on ne fait qu'empiler des
-        # bonus sans rapport avec les plis reels. Et un partenaire qui n'a lui-meme
-        # aucun as ne remonte pas du tout, meme pour ce bonus : ce n'est pas a lui de
-        # parler des as des autres.
+        # As with suit contracts, holding all the aces isn't enough to bid
+        # the non-third tens on top: at least 4 tricks must actually be
+        # counted in your own hand (same method as the suit décrochage),
+        # otherwise we'd just be stacking bonuses unrelated to real tricks.
+        # And a partner who has no ace themselves doesn't raise at all, even
+        # for this bonus: it's not their place to speak for others' aces.
         if my_aces > 0 and combined_aces >= 4 and 'sa_tens' not in contrib and self._count_tricks(None) >= 4:
             non_sec_tens = sum(1 for s in SUITS if has_rank(self.hand, s, '10') and count_suit(self.hand, s) >= 2)
             if non_sec_tens > 0:
@@ -281,9 +286,10 @@ class HeuristicPlayer(Player):
             new_level += 10 * my_jacks
             contrib.add('ta_jacks')
         combined_jacks = self._combined_count(partner_bid, 'TA', my_jacks)
-        # Meme garde-fou qu'a SA : tous les valets reunis ne suffit pas, il faut aussi
-        # au moins 4 plis reellement comptes (valet/9/as a la place de as/10/roi), et
-        # un partenaire sans valet lui-meme ne remonte pas du tout.
+        # Same guard as SA: all the jacks combined isn't enough, we also need
+        # at least 4 tricks actually counted (jack/9/ace instead of
+        # ace/10/king), and a partner with no jack of their own doesn't raise
+        # at all.
         if my_jacks > 0 and combined_jacks >= 4 and 'ta_nines' not in contrib and self._count_tricks(None, hi='J', lo='9', third='A') >= 4:
             non_sec_nines = sum(1 for s in SUITS if has_rank(self.hand, s, '9') and count_suit(self.hand, s) >= 2)
             if non_sec_nines > 0:
@@ -301,16 +307,16 @@ class HeuristicPlayer(Player):
                 partner_bid = current_best
             else:
                 opponent_bid = current_best
-                # Un adversaire a enchéri après mon partenaire : je peux quand même
-                # remonter la dernière annonce de mon partenaire, pas seulement décrocher
-                # sur ma propre main (heuristiques.md §1.1, note TA/SA/couleur).
+                # An opponent bid after my partner: I can still raise my
+                # partner's last bid, not just décrocher (overcall) on my own
+                # hand (heuristiques.md §1.1, TA/SA/suit note).
                 earlier_partner_bid = self._last_partner_bid()
                 if earlier_partner_bid is not None:
                     partner_bid = earlier_partner_bid
 
         candidates = []
 
-        # 1.1) Couleur
+        # 1.1) Suit
         for s in SUITS:
             cnt = count_suit(self.hand, s)
             has_j = has_rank(self.hand, s, 'J')
@@ -341,7 +347,7 @@ class HeuristicPlayer(Player):
         if sa_candidate is not None:
             candidates.append(sa_candidate)
 
-        # 1.3) TA (Valets à la place des As, 9 à la place des 10)
+        # 1.3) TA (jacks instead of aces, 9s instead of 10s)
         jacks = sum(1 for c in self.hand if c.rank == 'J')
         nines_non_sec = sum(1 for s in SUITS if has_rank(self.hand, s, '9') and count_suit(self.hand, s) >= 2)
         ta_candidate = None
@@ -354,7 +360,7 @@ class HeuristicPlayer(Player):
         if ta_candidate is not None:
             candidates.append(ta_candidate)
 
-        # Remontée du partenaire
+        # Partner's raise
         if partner_bid is not None:
             if partner_bid[1] == 'SA':
                 r = self._partner_sa_remonte(partner_bid)
@@ -374,27 +380,28 @@ class HeuristicPlayer(Player):
                 if r is not None:
                     candidates.append(r)
 
-        # Enchère maximale entre toutes les couleurs/types disponibles ; à palier égal,
-        # on préfère prolonger l'annonce du partenaire plutôt qu'un jeu "solo".
+        # Highest bid among all available suits/types; at an equal level, we
+        # prefer extending the partner's bid over a "solo" bid.
         def _bid_key(b):
             follows_partner = partner_bid is not None and b[1] == partner_bid[1]
             return (b[0], 1 if follows_partner else 0)
         best_offer = max(candidates, key=_bid_key) if candidates else None
 
-        # Nos propres As/Valets sont déjà "annoncés" dès notre déclaration initiale (le
-        # niveau 80/90/100 les encode) : on ne doit pas pouvoir les re-compter plus tard
-        # comme une remontée, sous peine de gonfler artificiellement le contrat.
+        # Our own aces/jacks are already "announced" as soon as we make our
+        # initial bid (the 80/90/100 level encodes them): they must not be
+        # recounted later as a raise, or the contract would be artificially
+        # inflated.
         if best_offer is not None and best_offer == sa_candidate:
             self._raise_contributions.add('sa_aces')
         if best_offer is not None and best_offer == ta_candidate:
             self._raise_contributions.add('ta_jacks')
 
-        # Décrochage : uniquement en réponse à un adversaire (jamais au partenaire), et
-        # seulement si la main n'est pas à plus d'un palier de l'adversaire. Si je suis
-        # moi-même le dernier de mon équipe à avoir réellement enchéri (mon partenaire
-        # ne m'a donné aucune information nouvelle depuis), je ne décroche pas non plus
-        # (heuristiques.md §1.1) : je ne dois pas remonter tout seul au-delà de ce que
-        # ma propre main justifiait déjà.
+        # Décrochage: only in response to an opponent (never to the
+        # partner), and only if the hand is no more than one level short of
+        # the opponent's. If I am myself the last of my team to have
+        # actually bid (my partner hasn't given me any new information
+        # since), I don't décrocher either (heuristiques.md §1.1): I mustn't
+        # raise on my own beyond what my own hand already justified.
         if opponent_bid is not None and best_offer is not None and not self._team_last_bidder_is_me():
             opp_level = opponent_bid[0]
             if opp_level <= 100 and best_offer[0] <= opp_level:
@@ -402,22 +409,24 @@ class HeuristicPlayer(Player):
                 trump = best_offer[1]
                 can_decrochage = next_level <= 110 and self._decrochage_ok(best_offer[0], opp_level)
                 if can_decrochage and next_level >= 100 and trump in SUITS:
-                    # Sans certitude que le partenaire ait le 9, un décrochage jusqu'à 100
-                    # n'est crédible que si on compte au moins 4 plis dans sa propre main
-                    # (l'as/dix exter éventuel est déjà inclus dans ce décompte).
+                    # Without certainty that the partner holds the 9, a
+                    # décrochage up to 100 is only credible if we count at
+                    # least 4 tricks in our own hand (any outside ace/ten is
+                    # already included in this count).
                     can_decrochage = self._count_tricks(trump) >= 4
                 if can_decrochage:
                     best_offer = (next_level, trump, best_offer[2], best_offer[3])
                     if next_level >= 100 and trump in SUITS:
-                        # Le soutien d'atout et l'as exter éventuel ont déjà servi à
-                        # justifier ce décrochage : on ne doit pas pouvoir les re-annoncer
-                        # comme une remontée supplémentaire quand le partenaire relance.
+                        # The trump support and any outside ace already
+                        # served to justify this décrochage: they must not be
+                        # re-announced as a further raise when the partner
+                        # raises again.
                         self._raise_contributions.add('color_support')
                         self._raise_contributions.add('color_exter')
 
-        # Coinche (heuristiques.md §1.4) : uniquement en défense (l'adversaire a la
-        # meilleure annonce), et seulement si on n'a pas par ailleurs une main qui
-        # justifierait de surenchérir à la place.
+        # Coinche (heuristiques.md §1.4): only on defense (the opponent has
+        # the best bid), and only if we don't otherwise have a hand that
+        # would justify outbidding instead.
         if opponent_bid is not None and (best_offer is None or best_offer[0] < opponent_bid[0] + 10):
             if self._can_coincher(opponent_bid):
                 return (opponent_bid[0], opponent_bid[1], True, opponent_bid[3])
@@ -425,18 +434,19 @@ class HeuristicPlayer(Player):
         return best_offer
 
     def _needed_tricks_to_coincher(self, level: int) -> int:
-        # Plus le contrat adverse est haut, moins la défense a besoin de plis pour
-        # justifier de coincher (le preneur a d'autant plus de mal à réussir) :
-        # 2 plis à 130, 3 à 120, 4 à 110, etc. (heuristiques.md §1.4).
+        # The higher the opponent's contract, the fewer tricks the defense
+        # needs to justify coinching (the taker has that much more trouble
+        # succeeding): 2 tricks at 130, 3 at 120, 4 at 110, etc.
+        # (heuristiques.md §1.4).
         return max(0, (150 - level) // 10)
 
     def _defense_trump_tricks(self, trump: str) -> int:
-        # A la difference de l'attaquant (1 pli par atout tenu, §1.1, puisqu'il
-        # controle la couleur), la defense ne peut pas supposer que ses atouts
-        # tiennent la route seuls (heuristiques.md §1.4) : 3 atouts quelconques ne
-        # rapportent par defaut aucun pli. L'as troisieme a l'atout (ou plus) vaut
-        # 1 pli pour l'ensemble ; l'as et le 10 avec deux autres atouts (4 en
-        # tout) valent 2 plis.
+        # Unlike the attacker (1 trick per trump held, §1.1, since they
+        # control the suit), the defense can't assume its trumps hold up on
+        # their own (heuristiques.md §1.4): any 3 trumps yield no trick by
+        # default. The ace as the third trump (or more) is worth 1 trick
+        # overall; the ace and the 10 with two more trumps (4 total) are
+        # worth 2 tricks.
         trumps = [c for c in self.hand if c.suit == trump]
         ranks = {c.rank for c in trumps}
         if 'A' in ranks and '10' in ranks and len(trumps) >= 4:
@@ -460,12 +470,12 @@ class HeuristicPlayer(Player):
         return False
 
     # ---------------------------------------------------------------
-    # Jeu de la carte (section 2 de heuristiques.md)
+    # Card play (section 2 of heuristiques.md)
     # ---------------------------------------------------------------
 
     def _rank_strength(self, card: Card, trump: str, lead_suit: Optional[str]):
-        # (is_trump, is_lead, -rank_idx) : même logique que GameEngine.card_order_key,
-        # pour qu'un atout batte toujours une carte hors-atout lors des comparaisons entre couleurs.
+        # (is_trump, is_lead, -rank_idx): same logic as GameEngine.card_order_key,
+        # so a trump always beats an off-suit card when comparing across suits.
         is_trump = 1 if (trump == 'TA' or card.suit == trump) else 0
         order = TRUMP_ORDER if is_trump else NORMAL_ORDER
         try:
@@ -476,7 +486,7 @@ class HeuristicPlayer(Player):
         return (is_trump, is_lead, -rank_idx)
 
     def _master_ranks(self, trump: str):
-        # Sous TA, toutes les couleurs se comptent comme à l'atout : Valet puis 9.
+        # Under TA, all suits count as trump: jack then 9.
         return ('J', '9') if trump == 'TA' else ('A', '10')
 
     def _weakest(self, cards, trump: str, lead: Optional[str] = None) -> Card:
@@ -486,10 +496,11 @@ class HeuristicPlayer(Player):
         return max(cards, key=lambda c: self._rank_strength(c, trump, lead))
 
     def _long_suit_lead(self, cards, trump: str, master_lo: str) -> Card:
-        # Couleur longue sans as/valet, avec le 10/9 (heuristiques.md §2.1.2/§2.1.3) :
-        # on garde le 10/9 et on joue la pire carte de la serie contigue qui le suit
-        # immediatement dans l'ordre (ex: 10-Roi-Dame-7 -> Dame, on garde le 10 et le
-        # 7). S'il n'y a aucune carte contigue, on retombe sur la plus petite carte.
+        # Long suit without ace/jack, holding the 10/9 (heuristiques.md
+        # §2.1.2/§2.1.3): we keep the 10/9 and play the worst card of the
+        # contiguous run that immediately follows it in rank order (e.g.
+        # 10-King-Queen-7 -> Queen, keeping the 10 and the 7). If there's no
+        # contiguous card, we fall back to the lowest card.
         order = TRUMP_ORDER if trump == 'TA' else NORMAL_ORDER
         ranks_held = {c.rank for c in cards}
         idx = order.index(master_lo) + 1
@@ -502,7 +513,7 @@ class HeuristicPlayer(Player):
         return self._weakest(cards, trump)
 
     def _played_cards(self):
-        """Cartes déjà jouées dans les plis complets de la donne en cours."""
+        """Cards already played in the completed tricks of the current donne."""
         engine = getattr(self, 'engine', None)
         if engine is None or not getattr(engine, 'history', None):
             return []
@@ -517,19 +528,19 @@ class HeuristicPlayer(Player):
         return seen < 8
 
     def _trump_already_led(self, trump: str) -> bool:
-        # La retenue du "9 second" ne vaut que pour le tout premier tour d'atout :
-        # au tour suivant, la consigne s'inverse (on joue le 9 si on l'a).
+        # Holding back the "second 9" only applies to the very first trump
+        # round: on the next round the rule reverses (play the 9 if you have it).
         return any(card[-1] == trump for card in self._played_cards())
 
     def _attaquant_principal_seat(self):
-        # heuristiques.md distingue le "preneur principal"/"attaquant principal"
-        # (celui qui a le premier annonce le type d'annonce finalement retenu,
-        # ex: le 90 Coeur initial) du "partenaire suiveur" qui a ensuite remonte
-        # (ex: le 120 Coeur) -- §2.1.1.1, §2.1.3, §2.5. Ce n'est pas forcement le
-        # meme siege que engine.taker_idx, qui est seulement l'auteur de la
-        # toute derniere annonce retenue (correct pour le score et pour "le
-        # preneur" au sens de la coinche, §1.4, mais pas pour cette distinction
-        # de jeu entre les deux attaquants).
+        # heuristiques.md distinguishes the "main taker"/"main attacker" (the
+        # one who first bid the type of bid ultimately retained, e.g. the
+        # initial 90 Hearts) from the "following partner" who then raised
+        # (e.g. the 120 Hearts) -- §2.1.1.1, §2.1.3, §2.5. This isn't
+        # necessarily the same seat as engine.taker_idx, which is only the
+        # author of the very last retained bid (correct for scoring and for
+        # "the taker" in the coinche sense, §1.4, but not for this play
+        # distinction between the two attackers).
         engine = getattr(self, 'engine', None)
         taker = getattr(engine, 'taker_idx', None)
         contract = getattr(engine, 'contract', None)
@@ -543,14 +554,14 @@ class HeuristicPlayer(Player):
         return taker
 
     def _color_contract_coinched(self) -> bool:
-        # heuristiques.md §2.5 ne s'applique qu'a un contrat couleur coinche (pas SA/TA).
+        # heuristiques.md §2.5 only applies to a coinched suit contract (not SA/TA).
         engine = getattr(self, 'engine', None)
         contract = getattr(engine, 'contract', None)
         return bool(contract is not None and contract.coinched and contract.trump in SUITS)
 
     def _coincheur_seat(self):
-        # Le siege qui a effectivement pose la coinche, si l'enchere s'est terminee
-        # ainsi (derniere offre de l'enchere avec le flag coinche).
+        # The seat that actually called the coinche, if the auction ended
+        # that way (last offer of the auction with the coinche flag).
         engine = getattr(self, 'engine', None)
         if engine is None or not getattr(engine, 'history', None):
             return None
@@ -562,10 +573,11 @@ class HeuristicPlayer(Player):
         return last['seat'] if offer is not None and offer[2] else None
 
     def _is_coincheur_before_taker(self) -> bool:
-        # heuristiques.md §2.5 : le defenseur qui a lui-meme coinche, et qui se
-        # trouve juste avant le preneur PRINCIPAL (l'initiateur, cf.
-        # _attaquant_principal_seat, pas forcement engine.taker_idx) dans
-        # l'ordre de jeu, donne priorite absolue au jeu dans sa longue.
+        # heuristiques.md §2.5: the defender who called the coinche
+        # themselves, and who sits right before the MAIN taker (the
+        # initiator, see _attaquant_principal_seat, not necessarily
+        # engine.taker_idx) in play order, gives absolute priority to
+        # leading their long suit.
         if not self._color_contract_coinched():
             return False
         preneur_principal = self._attaquant_principal_seat()
@@ -575,16 +587,17 @@ class HeuristicPlayer(Player):
         return self._coincheur_seat() == seat
 
     def _is_confirmed_master(self, card: Card, trump: str) -> bool:
-        # Vraie même si ce n'est ni l'as ni le 10 : toutes les cartes qui la
-        # dominent dans sa couleur sont déjà tombées, donc elle gagne à coup sûr.
+        # True even if it's neither the ace nor the 10: every card that
+        # outranks it in its suit has already been played, so it's
+        # guaranteed to win.
         order = TRUMP_ORDER if (trump == 'TA' or card.suit == trump) else NORMAL_ORDER
         higher_ranks = order[:order.index(card.rank)]
         return all(self._card_seen_before(card.suit, r) for r in higher_ranks)
 
     def _choose_attack_suit(self, trump):
-        # L'attaque veut ouvrir dans la couleur où elle avait initialement le plus
-        # de cartes (heuristiques.md §2.1.1.2), pas juste jouer la carte la plus
-        # faible toutes couleurs confondues.
+        # The attack wants to lead in the suit where it initially held the
+        # most cards (heuristiques.md §2.1.1.2), not just play the weakest
+        # card across all suits.
         initial = getattr(self, 'initial_hand', self.hand)
         lengths = {s: sum(1 for c in initial if c.suit == s) for s in SUITS if s != trump}
         available = [s for s in lengths if count_suit(self.hand, s) > 0]
@@ -593,10 +606,10 @@ class HeuristicPlayer(Player):
         return max(available, key=lambda s: lengths[s])
 
     def _suit_to_replay_for_partner(self, master_hi):
-        # Si mon partenaire a fait sa toute première ouverture dans une couleur et que
-        # j'ai pris avec ma carte maitresse (l'as en SA, le valet en TA), je dois
-        # rejouer cette couleur en priorité tant que j'y reste maitre (heuristiques.md
-        # §2.1.2/§2.1.3).
+        # If my partner made their very first lead in a suit and I won it
+        # with my master card (the ace in SA, the jack in TA), I must lead
+        # that suit again as a priority as long as I still hold the master
+        # there (heuristiques.md §2.1.2/§2.1.3).
         engine = getattr(self, 'engine', None)
         seat = getattr(self, 'seat', None)
         if engine is None or not getattr(engine, 'history', None) or seat is None:
@@ -634,10 +647,10 @@ class HeuristicPlayer(Player):
         return self._weakest(pool, trump)
 
     def _lead_coinche_defense_long_suit(self, trump, master_hi, master_lo):
-        # heuristiques.md §2.5 : defense agressive du coincheur juste avant le
-        # preneur principal, priorite absolue a la longue (en commencant par
-        # l'as si elle s'y trouve) pour le forcer a couper. L'attaque, elle,
-        # joue normalement quand elle se fait coincher (§2.5).
+        # heuristiques.md §2.5: aggressive defense by the coincheur right
+        # before the main taker, absolute priority to the long suit
+        # (starting with the ace if it's there) to force them to cut. The
+        # attack, on the other hand, plays normally when it gets coinched (§2.5).
         suit = self._choose_attack_suit(trump)
         if suit is None:
             return self._weakest(self.hand, trump)
@@ -653,12 +666,12 @@ class HeuristicPlayer(Player):
         trumps = [c for c in self.hand if c.suit == trump]
         if trumps:
             if self._trump_already_led(trump) and not self._trumps_remain_with_opponents(trump):
-                # plus aucun atout ne reste chez l'adversaire : inutile de jouer notre
-                # dernier atout (on le sait seul à en avoir), autant le garder pour une
-                # coupe éventuelle et attaquer ailleurs.
+                # no trump remains with the opponents: no point playing our
+                # last trump (we know we're the only one left with any),
+                # better to keep it for a possible cut and attack elsewhere.
                 return self._lead_offsuit_master(trump, master_hi, master_lo)
-            # 9 second : uniquement au tout premier tour d'atout, on garde le 9
-            # (notre plus gros atout, faute de valet) pour le tour suivant.
+            # second 9: only on the very first trump round, we keep the 9
+            # (our highest trump, lacking the jack) for the next round.
             if (not self._trump_already_led(trump)) and has_rank(self.hand, trump, '9') and len(trumps) > 1:
                 others = [c for c in trumps if c.rank != '9']
                 return self._weakest(others, trump)
@@ -672,12 +685,13 @@ class HeuristicPlayer(Player):
         trumps = [c for c in self.hand if c.suit == trump]
         if trumps:
             if self._trump_already_led(trump) and not self._trumps_remain_with_opponents(trump):
-                # même raison que côté attaquant principal : ne pas gâcher le dernier
-                # atout quand on sait qu'on est seul à en tenir encore.
+                # same reason as on the main attacker's side: don't waste
+                # the last trump when we know we're the only one still
+                # holding any.
                 return self._lead_offsuit_master(trump, master_hi, master_lo)
             best = self._strongest(trumps, trump)
             if best.rank == '9' and len(trumps) > 1 and not self._trump_already_led(trump):
-                # même logique que le tour du valet : on garde le 9 pour le tour suivant
+                # same logic as the jack round: we keep the 9 for the next round
                 others = [c for c in trumps if c.rank != '9']
                 return self._weakest(others, trump)
             return best
@@ -685,19 +699,20 @@ class HeuristicPlayer(Player):
 
     def _lead_defense(self, trump, master_hi, master_lo):
         if self._is_coincheur_before_taker():
-            # heuristiques.md §2.5 : le coincheur juste avant le preneur donne
-            # priorite absolue a sa longue, avant meme ses as hors-atout.
+            # heuristiques.md §2.5: the coincheur right before the taker
+            # gives absolute priority to their long suit, even before their
+            # outside aces.
             return self._lead_coinche_defense_long_suit(trump, master_hi, master_lo)
         offsuit_masters = [c for c in self.hand if c.rank == master_hi and c.suit != trump]
         if offsuit_masters:
             return offsuit_masters[0]
-        # Meme logique que _lead_offsuit_master (cote attaque) : le 10 devenu
-        # maitre (as deja passe), puis toute carte devenue maitresse par
-        # elimination meme si ce n'est ni l'as ni le 10 (heuristiques.md ligne
-        # 71/128, _is_confirmed_master) -- avant, seul un as litteral etait
-        # reconnu comme carte maitre a jouer en tete, une dame ou un roi
-        # devenus maitres par elimination tombaient dans le repli "plus
-        # faible" et etaient gaspilles en defausse plutot que menes.
+        # Same logic as _lead_offsuit_master (attack side): the 10 having
+        # become master (ace already played), then any card having become
+        # master by elimination even if it's neither the ace nor the 10
+        # (heuristiques.md line 71/128, _is_confirmed_master) -- previously,
+        # only a literal ace was recognized as a master card to lead, a
+        # queen or king that had become master by elimination fell into the
+        # "weakest" fallback and was wasted as a discard instead of being led.
         offsuit = [c for c in self.hand if c.suit != trump]
         seconds = [c for c in offsuit if c.rank == master_lo and self._card_seen_before(c.suit, master_hi)]
         if seconds:
@@ -711,9 +726,10 @@ class HeuristicPlayer(Player):
         return self._weakest(self.hand, trump)
 
     def _prefer_9_second_suit(self, candidates, trump, is_taker):
-        # A TA, le partenaire du preneur (pas lui-même) cherche à ouvrir dans la
-        # couleur où il a un 9 second (ou plus) pour faire comprendre à son partenaire
-        # qu'il a le 9 (heuristiques.md §2.1.3, spécifique à TA).
+        # In TA, the taker's partner (not the taker themselves) looks to
+        # lead in the suit where they have a second (or later) 9, to let
+        # their partner know they hold the 9 (heuristiques.md §2.1.3,
+        # TA-specific).
         if trump != 'TA' or is_taker or len(candidates) < 2:
             return candidates
         preferred = [(s, cards) for s, cards in candidates
@@ -722,11 +738,12 @@ class HeuristicPlayer(Player):
         return preferred + rest if preferred else candidates
 
     def _lead_attack_sa_ta(self, trump, master_hi, master_lo, is_taker=False):
-        # Priorité absolue : une couleur devenue maitresse par élimination (le 10/9
-        # après passage de l'as/valet) se joue avant tout, y compris avant de rendre
-        # la main à la couleur ouverte par le partenaire (heuristiques.md §2.1.2/§2.1.3).
-        # master_hi (as/valet) est toujours trivialement "confirmé" (rang le plus haut
-        # de son ordre) : ce n'est pas de lui qu'il s'agit ici.
+        # Absolute priority: a suit that has become master by elimination
+        # (the 10/9 after the ace/jack has been played) is led before
+        # anything else, even before returning to the suit the partner
+        # opened (heuristiques.md §2.1.2/§2.1.3). master_hi (ace/jack) is
+        # always trivially "confirmed" (highest rank in its order): that's
+        # not what's at stake here.
         confirmed_by_suit = {}
         for c in self.hand:
             if c.rank != master_hi and self._is_confirmed_master(c, trump):
@@ -735,10 +752,10 @@ class HeuristicPlayer(Player):
             suit = next(iter(confirmed_by_suit))
             return self._strongest(confirmed_by_suit[suit], trump)
 
-        # Sinon, si mon partenaire a fait sa première ouverture dans une couleur et
-        # que j'ai pris avec ma carte maitresse, je rejoue cette couleur tant que j'y
-        # ai encore des cartes : pas besoin d'une certitude totale sur la carte
-        # restante, la prise avec l'as/valet suffit.
+        # Otherwise, if my partner made their first lead in a suit and I won
+        # it with my master card, I lead that suit again as long as I still
+        # have cards in it: no need for total certainty about the remaining
+        # card, winning with the ace/jack is enough.
         replay_suit = self._suit_to_replay_for_partner(master_hi)
         if replay_suit is not None and count_suit(self.hand, replay_suit) > 0:
             replay_cards = [c for c in self.hand if c.suit == replay_suit]
@@ -752,7 +769,7 @@ class HeuristicPlayer(Player):
             if len(cards) >= 3 and any(c.rank == master_hi for c in cards):
                 long_with_master.append((s, cards))
             elif len(cards) >= 3 and any(c.rank == master_lo for c in cards):
-                # couleur longue sans as, avec un 10 (heuristiques.md §2.1.2)
+                # long suit without the ace, with a 10 (heuristiques.md §2.1.2)
                 long_without_master.append((s, cards))
             else:
                 short_suits.append((s, cards))
@@ -765,7 +782,7 @@ class HeuristicPlayer(Player):
                 return next(c for c in cards if c.rank == master_lo)
             if len(long_with_master) == 1 and not long_without_master and not short_suits:
                 return next(c for c in cards if c.rank == master_hi)
-            # on évite de jouer sa carte maîtresse au premier tour d'une couleur si une autre ouverture existe
+            # we avoid playing our master card on the first round of a suit if another lead is available
             if long_without_master:
                 _, cards2 = long_without_master[0]
                 return self._long_suit_lead(cards2, trump, master_lo)
@@ -805,13 +822,14 @@ class HeuristicPlayer(Player):
         card = current_winner[1]
         master_rank = self._is_absolute_master_rank(trump)
         if trump in SUITS:
-            # à contrat couleur, seul le Valet d'atout est réellement imparable (une carte
-            # maîtresse hors-atout peut toujours être coupée par un adversaire encore pourvu d'atout)
+            # in a suit contract, only the trump jack is truly unstoppable
+            # (an off-trump master card can always be cut by an opponent
+            # still holding trump)
             return card.suit == trump and card.rank == master_rank
         return card.rank == master_rank
 
     def _choose_defausse_suit(self):
-        # couleur faible = singlette initiale, ou couleur à 2 cartes initiales sans 10 ni As
+        # weak suit = an initial singleton, or an initial doubleton with no 10 or ace
         initial = getattr(self, 'initial_hand', self.hand)
         weak = []
         for s in SUITS:
@@ -834,8 +852,8 @@ class HeuristicPlayer(Player):
         return self._weakest(cand, trump)
 
     def _secure_when_partner_wins(self, same, trump, lead, trick):
-        # Le pli est déjà gagné pour mon camp : je choisis laquelle de mes cartes de
-        # cette couleur jouer maintenant (sans risque), et laquelle garder en main.
+        # The trick is already won for my side: I choose which of my cards
+        # in this suit to play now (risk-free), and which to keep in hand.
         order = TRUMP_ORDER if (trump == 'TA' or lead == trump) else NORMAL_ORDER
         ordered = sorted(same, key=lambda c: self._rank_strength(c, trump, lead), reverse=True)
         top = ordered[0]
@@ -845,12 +863,12 @@ class HeuristicPlayer(Player):
             for r in higher_ranks
         )
         if top_secured or len(ordered) == 1:
-            # ma meilleure carte sera maitresse plus tard : je la garde
+            # my best card will become master later: I keep it
             return ordered[-1]
         if len(ordered) == 2:
-            # valet/roi second : je le sécurise maintenant plutôt que la petite carte
+            # jack/king as the second card: I secure it now rather than the low card
             return ordered[0]
-        # 3 cartes ou plus : je sécurise la carte intermédiaire, je garde la meilleure en réserve
+        # 3 cards or more: I secure the middle card, keeping the best in reserve
         return ordered[1]
 
     def _follow_card(self, trick, trump, is_attacker, master_hi, master_lo):
@@ -863,13 +881,14 @@ class HeuristicPlayer(Player):
 
         if same:
             if is_attacker and lead == trump and trump in SUITS:
-                # Suite du "faire tomber les atouts" (2.1.1.1) : valet puis 9 (toujours
-                # légaux ici : rien ne bat le valet, et si on tient le 9 sans le valet,
-                # soit il bat le maître actuel, soit ce maître est le valet lui-même et
-                # plus rien ne peut de toute façon monter en force - regles_coinche.md
-                # §4). Sans l'un ou l'autre, en revanche, il faut vérifier si une carte
-                # doit monter en force sur le maître actuel avant de jouer la plus
-                # faible : sinon on risque de sous-couper illégalement.
+                # Continuing "drawing trumps" (2.1.1.1): jack then 9 (always
+                # legal here: nothing beats the jack, and if we hold the 9
+                # without the jack, either it beats the current master, or
+                # that master is the jack itself and nothing can overtrump
+                # it anyway - regles_coinche.md §4). Without either, however,
+                # we must check whether some card is required to overtrump
+                # the current master before playing the weakest: otherwise
+                # we risk illegally undertrumping.
                 for rank in ('J', '9'):
                     for c in same:
                         if c.rank == rank:
@@ -879,8 +898,9 @@ class HeuristicPlayer(Player):
                 return self._weakest(beating, trump, lead) if beating else self._weakest(same, trump, lead)
             winning = [c for c in same if self._rank_strength(c, trump, lead) > self._rank_strength(current_winner[1], trump, lead)]
             if winning:
-                # Priorité à la carte maitre (l'As, ou le 10 si l'as est déjà passé) pour
-                # devenir maitre du pli, sinon la plus petite carte qui remporte le pli.
+                # Priority to the master card (the ace, or the 10 if the ace
+                # has already been played) to become master of the trick,
+                # otherwise the smallest card that wins the trick.
                 masters = [c for c in winning if c.rank == master_hi]
                 if masters:
                     return masters[0]
@@ -904,9 +924,9 @@ class HeuristicPlayer(Player):
                               self._rank_strength(current_winner[1], trump, lead)]
             if higher_trumps:
                 if is_attacker:
-                    # attaque : économie, la plus petite carte qui gagne
+                    # attack: economy, the smallest card that wins
                     return self._weakest(higher_trumps, trump)
-                # défense : coupe avec le plus gros atout, sauf 9 troisième ou As quatrième
+                # defense: cut with the highest trump, except a third 9 or a fourth ace
                 nine_third = has_rank(self.hand, trump, '9') and len(trumps) == 3
                 as_fourth = has_rank(self.hand, trump, 'A') and len(trumps) == 4
                 if nine_third or as_fourth:
@@ -920,9 +940,9 @@ class HeuristicPlayer(Player):
         engine = getattr(self, 'engine', None)
         taker = getattr(engine, 'taker_idx', None)
         is_attacker = (taker is not None) and (taker % 2 == self.seat % 2)
-        # "preneur principal"/"attaquant principal" = l'initiateur du contrat
-        # retenu (§2.1.1.1), pas forcement engine.taker_idx (auteur de la
-        # derniere annonce) -- cf. _attaquant_principal_seat.
+        # "main taker"/"main attacker" = the initiator of the retained
+        # contract (§2.1.1.1), not necessarily engine.taker_idx (author of
+        # the last bid) -- see _attaquant_principal_seat.
         is_taker = (self._attaquant_principal_seat() == self.seat)
         master_hi, master_lo = self._master_ranks(trump)
 
@@ -934,7 +954,7 @@ class HeuristicPlayer(Player):
         self.hand.remove(choice)
         return choice
 
-SEAT_LABELS = {0: 'N', 1: 'W', 2: 'S', 3: 'E'}  # doit rester aligne avec render_history.PLAYER_POSITIONS
+SEAT_LABELS = {0: 'N', 1: 'W', 2: 'S', 3: 'E'}  # must stay aligned with render_history.PLAYER_POSITIONS
 SUIT_SYMBOLS = {'P': '♠', 'C': '♥', 'K': '♦', 'T': '♣'}
 _RED_SUITS = {'C', 'K'}
 _ANSI_RED = '\033[91m'
@@ -961,14 +981,14 @@ def _fmt_hand(hand: List[Card], trump: Optional[str] = None) -> str:
         order = TRUMP_ORDER if (trump == 'TA' or s == trump) else NORMAL_ORDER
         cards = sorted(cards, key=lambda c: order.index(c.rank) if c.rank in order else 99)
         groups.append(' '.join(_fmt_card(c) for c in cards))
-    return '  |  '.join(groups) if groups else '(vide)'
+    return '  |  '.join(groups) if groups else '(empty)'
 
 
 def _fmt_bid(bid) -> str:
     level, trump, coinched, capot = bid
     label = f"capot{_trump_label(trump)}" if capot else f"{level}{_trump_label(trump)}"
     if coinched:
-        label += " (coinché)"
+        label += " (coinched)"
     return label
 
 
@@ -1003,9 +1023,9 @@ def _card_from_repr(raw: str) -> Card:
 
 
 class HumanPlayer(Player):
-    """Joueur controle au clavier : bid()/play_card() affichent l'etat courant
-    (relu depuis self.engine.history, comme HeuristicPlayer) et lisent la reponse
-    sur stdin, en reutilisant les memes checks de legalite que le moteur."""
+    """Keyboard-controlled player: bid()/play_card() display the current state
+    (read back from self.engine.history, like HeuristicPlayer) and read the
+    response from stdin, reusing the same legality checks as the engine."""
 
     def __init__(self, name: str):
         super().__init__(name)
@@ -1018,17 +1038,17 @@ class HumanPlayer(Player):
         self._deal_count += 1
         self._shown_tricks = 0
         if self._deal_count > 1:
-            print("\n(Tout le monde a passé — nouvelle donne.)")
+            print("\n(Everyone passed — new deal.)")
         if self.advisor is not None:
             self.advisor.deal(list(hand))
 
     def _advisor_hint(self, kind: str, current_best=None, leader=None, trick=None, trump=None):
-        """Interroge self.advisor (un Player independant, jamais dans engine.players)
-        sur ce qu'il aurait choisi a la place du joueur humain, sans toucher a la
-        vraie main : advisor.hand est resynchronise sur une COPIE de self.hand a
-        chaque appel (advisor.play_card() la mute en retirant la carte choisie),
-        advisor.initial_hand reste celui fixe au deal() (necessaire aux heuristiques
-        de defausse basees sur la main de depart)."""
+        """Queries self.advisor (an independent Player, never in engine.players)
+        about what it would have chosen in place of the human player, without
+        touching the real hand: advisor.hand is resynced to a COPY of
+        self.hand on each call (advisor.play_card() mutates it by removing
+        the chosen card), advisor.initial_hand stays the one fixed at
+        deal() (needed by the discard heuristics based on the starting hand)."""
         if self.advisor is None:
             return
         self.advisor.seat = self.seat
@@ -1036,13 +1056,13 @@ class HumanPlayer(Player):
         self.advisor.hand = list(self.hand)
         if kind == 'bid':
             suggestion = self.advisor.bid(current_best)
-            label = 'passe' if suggestion is None else _fmt_bid(self.engine._normalize_bid(suggestion))
-            verb = 'annoncé'
+            label = 'pass' if suggestion is None else _fmt_bid(self.engine._normalize_bid(suggestion))
+            verb = 'bid'
         else:
             suggestion = self.advisor.play_card(self.seat, leader, trick, trump)
             label = _fmt_card(suggestion)
-            verb = 'joué'
-        print(f"[IA] Elle aurait {verb} : {label}")
+            verb = 'played'
+        print(f"[AI] It would have {verb}: {label}")
 
     def _label(self, seat: int) -> str:
         return SEAT_LABELS.get(seat, str(seat))
@@ -1053,13 +1073,14 @@ class HumanPlayer(Player):
             for p in trick_record['plays']
         )
         winner = trick_record['winner']
-        print(f"\n[Pli {trick_no} terminé] {plays}  →  {self._label(winner)} ({self._relation(winner)}) remporte")
+        print(f"\n[Trick {trick_no} done] {plays}  →  {self._label(winner)} ({self._relation(winner)}) wins")
 
     def show_new_tricks(self):
-        """Rattrape l'affichage des plis termines depuis le dernier appel (self.engine.history
-        est le seul canal pour savoir ce qui s'est joue -- necessaire quand ce joueur n'est pas
-        le dernier a jouer dans un pli : les 1-2 dernieres cartes sont jouees "en silence" par les
-        bots avant que ce ne soit de nouveau son tour)."""
+        """Catches up the display of finished tricks since the last call
+        (self.engine.history is the only channel for knowing what's been
+        played -- needed when this player isn't the last to play in a
+        trick: the last 1-2 cards are played "silently" by the bots before
+        it's their turn again)."""
         tricks = self.engine.history['tricks']
         while self._shown_tricks < len(tricks):
             self._print_trick_recap(tricks[self._shown_tricks], self._shown_tricks + 1)
@@ -1067,54 +1088,54 @@ class HumanPlayer(Player):
 
     def _relation(self, other_seat: int) -> str:
         if other_seat == self.seat:
-            return 'toi'
+            return 'you'
         if other_seat == (self.seat + 2) % 4:
-            return 'ton partenaire'
-        return 'adversaire'
+            return 'your partner'
+        return 'opponent'
 
     def bid(self, current_best):
         engine = self.engine
         auction = engine.history['auction']
         parts = [
-            f"{self._label(e['seat'])} passe" if e['offer'] is None
+            f"{self._label(e['seat'])} pass" if e['offer'] is None
             else f"{self._label(e['seat'])} {_fmt_bid(e['offer'])}"
             for e in auction
         ]
-        auction_line = (' · '.join(parts) + ' · → à toi') if parts else '→ à toi'
+        auction_line = (' · '.join(parts) + ' · → your turn') if parts else '→ your turn'
 
-        print(f"\n=== Enchère — {self._label(self.seat)} (toi) ===")
-        print(f"Enchères : {auction_line}")
-        print(f"Ta main : {_fmt_hand(self.hand)}")
+        print(f"\n=== Bidding — {self._label(self.seat)} (you) ===")
+        print(f"Bids: {auction_line}")
+        print(f"Your hand: {_fmt_hand(self.hand)}")
         if current_best is not None:
             last = next((e for e in reversed(auction) if e['offer'] is not None), None)
             bidder = self._label(last['seat']) if last else '?'
             who = self._relation(last['seat']) if last else '?'
-            print(f"Contrat actuel : {_fmt_bid(current_best)} ({bidder}, {who})")
+            print(f"Current contract: {_fmt_bid(current_best)} ({bidder}, {who})")
         else:
-            print("Contrat actuel : aucun")
+            print("Current contract: none")
         self._advisor_hint('bid', current_best=current_best)
 
         while True:
-            choice = input("[p] passer   [b] surenchérir   [c] coincher > ").strip().lower()
-            if choice in ('', 'p', 'pass', 'passe'):
+            choice = input("[p] pass   [b] bid   [c] coinche > ").strip().lower()
+            if choice in ('', 'p', 'pass'):
                 return None
-            if choice in ('c', 'coinche', 'coincher'):
+            if choice in ('c', 'coinche', 'double'):
                 if current_best is None:
-                    print("  Impossible de coincher : aucune enchère en cours.")
+                    print("  Can't coinche: no bid in progress.")
                     continue
                 return (current_best[0], current_best[1], True, current_best[3])
-            if choice in ('b', 'bid', 'surencherir', 'surenchérir'):
-                raw = input("  Ton enchère (ex: 90C, 100TA, capotP) : ").strip()
+            if choice in ('b', 'bid', 'raise'):
+                raw = input("  Your bid (e.g. 90C, 100TA, capotP): ").strip()
                 parsed = _parse_bid_str(raw)
                 if parsed is None:
-                    print("  Format non reconnu.")
+                    print("  Unrecognized format.")
                     continue
                 normalized = engine._normalize_bid(parsed)
                 if not engine._is_valid_bid(normalized, current_best):
-                    print("  Enchère invalide (palier ou couleur non autorisés).")
+                    print("  Invalid bid (level or suit not allowed).")
                     continue
                 return normalized
-            print("  Choix non reconnu.")
+            print("  Unrecognized choice.")
 
     def play_card(self, seat: int, leader: int, trick: list, trump: str):
         engine = self.engine
@@ -1122,43 +1143,43 @@ class HumanPlayer(Player):
         trick_no = len(engine.history['tricks']) + 1
         contract = engine.contract
         contract_label = f"capot{_trump_label(trump)}" if contract.capot else f"{contract.level}{_trump_label(trump)}"
-        print(f"\n=== Pli {trick_no}/8 — {self._label(seat)} (toi) ===")
-        print(f"Contrat : {contract_label} par {self._label(engine.taker_idx)} ({self._relation(engine.taker_idx)})")
+        print(f"\n=== Trick {trick_no}/8 — {self._label(seat)} (you) ===")
+        print(f"Contract: {contract_label} by {self._label(engine.taker_idx)} ({self._relation(engine.taker_idx)})")
 
         played = dict(trick)
         for s in range(4):
-            tag = '(toi)' if s == seat else ('(partenaire)' if s == (seat + 2) % 4 else '(adv.)')
+            tag = '(you)' if s == seat else ('(partner)' if s == (seat + 2) % 4 else '(opp.)')
             if s in played:
                 status = f"[ {_fmt_card(played[s])} ]"
                 if s == leader:
-                    status += " [entame]"
+                    status += " [lead]"
             elif s == seat:
-                status = "(à toi de jouer)"
+                status = "(your turn)"
             else:
-                status = "(en attente)"
+                status = "(waiting)"
             print(f"  {self._label(s):1s} {tag:12s} {status}")
 
-        print(f"Ta main : {_fmt_hand(self.hand, trump)}")
+        print(f"Your hand: {_fmt_hand(self.hand, trump)}")
         self._advisor_hint('play', leader=leader, trick=trick, trump=trump)
 
         legal = engine.legal_moves(seat, self.hand, trick, trump)
         while True:
-            raw = input("Ta carte (code, ex. 8K) : ").strip().upper()
+            raw = input("Your card (code, e.g. 8K): ").strip().upper()
             card = _find_card(raw, self.hand)
             if card is None:
-                print("  Carte invalide ou absente de ta main.")
+                print("  Invalid card or not in your hand.")
                 continue
             if card not in legal:
-                print("  Coup illégal (tu dois suivre/couper/monter selon la règle).")
+                print("  Illegal move (you must follow suit/cut/overtrump per the rules).")
                 continue
             self.hand.remove(card)
             return card
 
 
 class RLPlayer(HeuristicPlayer):
-    """Enchérit exactement comme HeuristicPlayer (bid() hérité tel quel) ; seul le
-    jeu de la carte est délégué à une policy entraînable. Sans policy attachée,
-    retombe sur le jeu heuristique (repli, pas un joueur aléatoire buggé)."""
+    """Bids exactly like HeuristicPlayer (bid() inherited as-is); only card
+    play is delegated to a trainable policy. With no policy attached, falls
+    back to heuristic play (a fallback, not a buggy random player)."""
     def __init__(self, name:str, policy=None):
         super().__init__(name)
         self.policy = policy
@@ -1189,10 +1210,10 @@ def create_player(strategy: str, name: str):
     return RandomPlayer(name)
 
 
-#Pour les tests 
+#For manual testing
 
 def main():
-    print("ok") #le test
+    print("ok")  # sanity check
     hand = [Card('P','A'), Card('P','10'), Card('K','A'), Card('T','Q'), Card('T','J'), Card('T','9'), Card('T','8'), Card('T','7')]
     player1=HeuristicPlayer("Player1")
     player1.deal(hand)
